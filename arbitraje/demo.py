@@ -161,6 +161,8 @@ def sembrar(db: BaseDatos, cfg: Config, dias: int = 45, semilla: int = 7, ahora:
         dia += timedelta(days=1)
     # una venta en curso: el comprador ya marcó "pagado" y llegó el SMS
     ordenes.append(orden("VENTA", 64.5, fin - 4 * MINUTO_MS, estado="BUYER_PAYED"))
+    # una compra en curso: te toca pagarle al vendedor (aparece en "preparar pago")
+    ordenes.append(orden("COMPRA", 72.0, fin - 6 * MINUTO_MS, estado="TRADING"))
     db.guardar_ordenes(ordenes)
 
     # 3) Avisos de pago del banco de los últimos 3 días (SMS simulados)

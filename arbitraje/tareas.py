@@ -9,7 +9,7 @@ from datetime import datetime, timedelta
 import httpx
 
 from . import anuncios as mod_anuncios
-from . import banco, binance_api, ganancias, mercado
+from . import banco, binance_api, ganancias, mercado, pagos as mod_pagos
 from .config import Config
 from .db import BaseDatos
 from .notificaciones import Telegram
@@ -342,6 +342,53 @@ class Motor:
         cuerpo = "\n".join(lineas)
         self.db.registrar_evento("pago", f"{titulo}. {' '.join(lineas)}")
         await self.telegram.enviar(titulo, cuerpo)
+
+    # ---- preparar pago (BDVApp "Pegar Datos") --------------------------------------
+
+    async def preparar_pago(
+        self,
+        monto_bs: float,
+        *,
+        telefono: str | None = None,
+        cedula: str | None = None,
+        banco: str | None = None,
+        concepto: str | None = None,
+        orden: str | None = None,
+        texto: str | None = None,
+    ) -> dict:
+        """Arma el bloque para pegar en la BDVApp y lo manda por Telegram. No paga nada."""
+        extra = mod_pagos.extraer_de_texto(texto) if texto else {}
+        monto_bs = monto_bs or extra.get("monto_bs") or 0.0
+        if concepto is None and orden:
+            concepto = self.cfg.pagos.concepto_por_defecto.format(orden=orden)
+        try:
+            datos = mod_pagos.construir(
+                monto_bs,
+                telefono=telefono or extra.get("telefono"),
+                cedula=cedula or extra.get("cedula"),
+                banco=banco or extra.get("banco_codigo"),
+                concepto=concepto,
+                banco_por_defecto=self.cfg.pagos.banco_por_defecto,
+            )
+        except mod_pagos.ErrorPago as e:
+            return {"ok": False, "error": str(e)}
+        bloque = mod_pagos.formatear(datos, self.cfg.pagos.plantilla)
+        enviado = False
+        if self.cfg.pagos.enviar_telegram:
+            enviado = await self.telegram.enviar(
+                f"Pago por preparar: Bs {formato_numero(datos.monto_bs)}",
+                "Pega esto en “Pegar Datos” de tu BDVApp, confirma con tu clave y envía:\n\n" + bloque,
+                pre=True,
+            )
+        self.db.registrar_evento(
+            "pago",
+            f"Pago preparado: Bs {formato_numero(datos.monto_bs)} a "
+            + (datos.telefono or datos.cedula or "?") + (f" (orden {orden})" if orden else ""),
+        )
+        return {"ok": True, "bloque": bloque, "enviado": enviado,
+                "datos": {"monto_bs": datos.monto_bs, "telefono": datos.telefono, "cedula": datos.cedula,
+                          "banco_codigo": datos.banco_codigo, "banco_nombre": datos.banco_nombre,
+                          "concepto": datos.concepto}}
 
     # ---- resumen diario ------------------------------------------------------------
 

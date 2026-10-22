@@ -218,6 +218,16 @@ button:focus-visible, a:focus-visible, select:focus-visible, input:focus-visible
 .lista-liberar li { margin-left: 16px; margin-bottom: 4px; }
 .lista-liberar .recordatorio { margin-top: 8px; color: var(--tinta-2); }
 
+/* ---- preparar pago ---- */
+.pago form { margin-top: 4px; }
+.pago label { margin-bottom: 10px; }
+.bloque-pago {
+  margin: 12px 0 0; padding: 12px 14px; border-radius: 10px; background: var(--lavado);
+  border: 1px solid var(--borde); font: 13.5px/1.6 ui-monospace, "Cascadia Code", Menlo, Consolas, monospace;
+  color: var(--tinta-1); white-space: pre-wrap; word-break: break-word;
+}
+.bloque-pago:empty { display: none; }
+
 /* ---- gráficos ---- */
 .graficos { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-top: 12px; }
 .grafico { margin: 0; padding: 14px 16px 12px; }

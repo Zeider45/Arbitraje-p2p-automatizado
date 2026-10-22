@@ -178,6 +178,39 @@
     <p class="aviso-inline" id="an-modo-real" hidden>Modo real activo: el bot mueve precios de verdad en tu cuenta de Binance.</p>
   </section>
 
+  <section class="tarjeta pago" aria-labelledby="t-pago">
+    <header class="cabecera">
+      <div>
+        <h2 id="t-pago">Preparar pago para la BDVApp</h2>
+        <p class="sub">Arma el bloque para “Pegar Datos” y te lo manda por Telegram. Tú pagas en la app con tu clave; el bot nunca mueve tu dinero.</p>
+      </div>
+    </header>
+    <form id="f-pago" autocomplete="off">
+      <div class="campos">
+        <label>Orden de compra por pagar
+          <select name="orden" id="pago-orden"><option value="">— elige o deja en “otro monto” —</option></select>
+        </label>
+        <label>Monto (Bs)<input name="monto_bs" type="number" step="0.01" min="0.01" required></label>
+        <label>Banco del beneficiario
+          <select name="banco" id="pago-banco"></select>
+        </label>
+        <label>Teléfono (Pago Móvil)<input name="telefono" inputmode="tel" placeholder="0414-1234567"></label>
+        <label>Cédula / RIF<input name="cedula" placeholder="V12345678"></label>
+        <label>Concepto<input name="concepto" maxlength="120" placeholder="Pago USDT"></label>
+      </div>
+      <label>O pega aquí los datos del vendedor (de la orden de Binance) y los extraigo
+        <textarea name="texto" rows="2" maxlength="2000" placeholder="Banesco 0134 · 0414-1234567 · V-12.345.678"></textarea>
+      </label>
+      <div class="pie-formulario">
+        <span class="sub">Teléfono o cédula: al menos uno.</span>
+        <button type="button" class="boton secundario" id="pago-copiar" hidden>Copiar bloque</button>
+        <button type="submit" class="boton">Preparar y enviar a Telegram</button>
+      </div>
+      <pre class="bloque-pago" id="pago-bloque" hidden></pre>
+      <p class="resultado" id="pago-resultado" role="status"></p>
+    </form>
+  </section>
+
   <section class="graficos" aria-label="Gráficos">
     <figure class="grafico" id="g-ganancia">
       <figcaption class="cabecera">

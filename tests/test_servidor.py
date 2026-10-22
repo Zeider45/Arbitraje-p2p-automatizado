@@ -77,6 +77,31 @@ def test_exportar_csv(cliente):
     assert cliente.get("/api/exportar/otra.csv").status_code == 404
 
 
+def test_preparar_pago(cliente):
+    r = cliente.post("/api/pagos/preparar", json={
+        "monto_bs": 1500.0, "telefono": "0414-1234567", "banco": "0134", "concepto": "Pago USDT",
+    })
+    assert r.status_code == 200
+    cuerpo = r.json()
+    assert cuerpo["ok"] is True
+    assert "04141234567" in cuerpo["bloque"]
+    assert "1.500,00" in cuerpo["bloque"]
+    assert cuerpo["datos"]["banco_nombre"] == "Banesco"
+
+
+def test_preparar_pago_desde_texto(cliente):
+    r = cliente.post("/api/pagos/preparar", json={
+        "monto_bs": 0, "texto": "Pago a 0414-1234567 V-12.345.678 Bs 2.300,00 Banesco",
+    })
+    assert r.status_code == 200
+    assert "2.300,00" in r.json()["bloque"]
+
+
+def test_preparar_pago_sin_destino_falla(cliente):
+    r = cliente.post("/api/pagos/preparar", json={"monto_bs": 1000.0})
+    assert r.status_code == 422
+
+
 def test_reposicionar_simulacion(cliente):
     r = cliente.post("/api/anuncios/reposicionar").json()
     assert r["ok"] is True

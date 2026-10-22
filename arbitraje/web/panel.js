@@ -12,6 +12,7 @@
   };
   const NIVELES = { info: "Info", oportunidad: "Oportunidad", pago: "Pago", error: "Error" };
   const PERIODOS = ["hoy", "7d", "30d", "90d", "todo"];
+  const ESTADOS_POR_PAGAR = new Set(["PENDING", "TRADING"]);  // compras tuyas aún por pagar
   const DIA_MS = 86400000;
 
   let periodo = PERIODOS.includes(leer("periodo")) ? leer("periodo") : "30d";
@@ -113,6 +114,7 @@
     renderMercado(d);
     renderOperacion(d);
     renderAnuncios(d);
+    renderPago(d);
     renderGraficos(d);
     renderOrdenes(d);
     renderCiclos(d);
@@ -313,6 +315,77 @@
     poner("an-log", acciones.length ? acciones.map((x) => "• " + x.texto).join("\n") : (estado && estado.error) || "");
     $("#an-modo-real").hidden = !(cfg.automatico && cfg.modo === "real");
     $("#an-reposicionar").hidden = !cfg.binance_configurado && cfg.modo === "real";
+  }
+
+  // ---- preparar pago (BDVApp) -------------------------------------------------
+
+  let bancosListos = false;
+
+  function renderPago(d) {
+    const banco = $("#pago-banco");
+    if (!bancosListos && d.config.bancos) {
+      const porDefecto = d.config.banco_por_defecto || "0102";
+      const codigos = Object.keys(d.config.bancos).sort();
+      for (const c of codigos) banco.append(el("option", { value: c, text: `${c} · ${d.config.bancos[c]}` }));
+      banco.value = porDefecto;
+      bancosListos = true;
+    }
+    // compras tuyas aún por pagar, para prellenar monto y concepto
+    const sel = $("#pago-orden");
+    const previo = sel.value;
+    sel.length = 1;  // conserva la primera opción
+    for (const o of d.ordenes) {
+      if (o.tipo === "COMPRA" && ESTADOS_POR_PAGAR.has(o.estado)) {
+        sel.append(el("option", { value: o.numero, "data-monto": o.total_bs,
+          text: `${o.numero} · Bs ${num(o.total_bs)}${o.contraparte ? " · " + o.contraparte : ""}` }));
+      }
+    }
+    if ([...sel.options].some((op) => op.value === previo)) sel.value = previo;
+  }
+
+  function iniciarFormularioPago() {
+    const f = $("#f-pago");
+    const bloque = $("#pago-bloque");
+    const copiar = $("#pago-copiar");
+    f.orden.addEventListener("change", () => {
+      const op = f.orden.selectedOptions[0];
+      if (op && op.dataset.monto) {
+        f.monto_bs.value = op.dataset.monto;
+        if (!f.concepto.value) f.concepto.value = `Pago USDT orden ${op.value}`;
+      }
+    });
+    f.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const cuerpo = {
+        monto_bs: Number(f.monto_bs.value || 0),
+        telefono: f.telefono.value || null,
+        cedula: f.cedula.value || null,
+        banco: f.banco.value || null,
+        concepto: f.concepto.value || null,
+        orden: f.orden.value || null,
+        texto: f.texto.value || null,
+      };
+      try {
+        const r = await api("/api/pagos/preparar", { method: "POST", body: JSON.stringify(cuerpo) });
+        bloque.textContent = r.bloque;
+        bloque.hidden = false;
+        copiar.hidden = false;
+        poner("pago-resultado", r.enviado ? "Enviado a Telegram. Ábrelo, copia el bloque y pégalo en “Pegar Datos” de tu BDVApp."
+          : "Bloque listo (Telegram no está configurado). Cópialo y pégalo en tu BDVApp.");
+      } catch (err) {
+        bloque.hidden = true;
+        copiar.hidden = true;
+        poner("pago-resultado", `No pude preparar el pago: ${err.message}`);
+      }
+    });
+    copiar.addEventListener("click", async () => {
+      try {
+        await navigator.clipboard.writeText(bloque.textContent);
+        poner("pago-resultado", "Bloque copiado. Pégalo en “Pegar Datos” de tu BDVApp.");
+      } catch (e) {
+        poner("pago-resultado", "Selecciona el bloque y cópialo a mano (tu navegador bloqueó el portapapeles).");
+      }
+    });
   }
 
   // ---- gráficos --------------------------------------------------------------
@@ -707,6 +780,7 @@
   iniciarControles();
   iniciarFormularioOrden();
   iniciarFormularioBanco();
+  iniciarFormularioPago();
   cargar(true);
   setInterval(() => { if (!document.hidden) cargar(false); }, 30000);
 })();

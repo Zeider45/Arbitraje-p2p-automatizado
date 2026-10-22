@@ -57,6 +57,16 @@ ruta = "BDV"                     # ruta bancaria para calcular el margen del anu
 # Para modo real necesitas tener ya creados en Binance tus anuncios de compra/venta;
 # el bot solo les mueve el precio (no crea desde cero, para no publicar algo mal por error).
 
+[pagos]
+# Preparación de pagos para "Pegar Datos" de la BDVApp. El bot arma el bloque con los
+# datos del beneficiario y te lo manda por Telegram; TÚ pagas en la app con tu clave.
+enviar_telegram = true
+banco_por_defecto = "0102"            # 0102 = Banco de Venezuela
+concepto_por_defecto = "Pago USDT orden {orden}"
+# plantilla del bloque (vacío = la de por defecto). Campos: {banco_codigo} {banco_nombre}
+# {telefono} {cedula} {monto} {concepto}. Las líneas sin dato se omiten.
+plantilla = ""
+
 [alertas]
 spread_minimo_pct = 1.0          # avisa cuando el neto como anunciante supere esto
 enfriamiento_min = 30.0          # no repetir la misma alerta antes de N minutos

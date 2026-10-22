@@ -34,8 +34,9 @@ Hay una parte que **sí** se puede automatizar de forma segura y legal, y otra q
 - 🚫 **Mover dinero desde el Banco de Venezuela.** El BDV **no tiene una API pública**
   para que un programa haga pagos o Pago Móvil por ti. Automatizar eso implicaría
   controlar la BDVApp por fuera (frágil, contra los términos del banco y vía rápida a
-  que te bloqueen la cuenta). El panel **prepara** el pago (monto, teléfono/cédula,
-  referencia) para que tú lo confirmes en tu BDVApp en segundos, pero el pago lo haces tú.
+  que te bloqueen la cuenta). En su lugar, el panel **arma el bloque de "Pegar Datos"**
+  (banco, teléfono/cédula, monto y concepto) y te lo **manda por Telegram**: lo pegas en
+  tu BDVApp, confirmas con tu clave y envías. Rápido, pero el pago lo haces tú.
 - 🚫 **Liberar USDT automáticamente.** Liberar sin verificar es exactamente la puerta
   de la estafa de triangulación (otra persona paga por el comprador) y va contra las
   reglas de Binance. El panel te muestra la orden **"lista para liberar"** con el pago
@@ -169,6 +170,9 @@ ruta = "BDV"               # con qué ruta bancaria calcula el margen
   margen neto por vuelta (con tu umbral). Todos tienen tooltip, teclado y "Ver tabla".
 - **Tablas**: órdenes (con la ruta de pago editable), ciclos, banco (conciliación y
   **"listas para liberar"**) y eventos. Exportables a CSV.
+- **Preparar pago para la BDVApp**: eliges la orden de compra por pagar (prellena el
+  monto), pones los datos del vendedor (o pegas su bloque de la orden) y el panel arma
+  el texto para **"Pegar Datos"** y te lo manda por Telegram. Tú pagas en la app.
 - **Formularios**: registrar una orden a mano y pegar un SMS del banco.
 - **Tema claro/oscuro** y diseño adaptado a teléfono.
 

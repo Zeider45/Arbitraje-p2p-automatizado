@@ -99,6 +99,14 @@ class Alertas:
 
 
 @dataclass
+class Pagos:
+    enviar_telegram: bool = True       # manda el bloque "Pegar Datos" por Telegram
+    banco_por_defecto: str = "0102"    # 0102 = Banco de Venezuela
+    plantilla: str = ""                # vacío = plantilla por defecto (ver pagos.py)
+    concepto_por_defecto: str = "Pago USDT orden {orden}"
+
+
+@dataclass
 class Banco:
     ruta_por_defecto: str = "interbancario"  # cómo pagaste una compra si la orden no lo dice
     limite_bdv_bs: float = 0.0  # 0 = sin límite (entre cuentas BDV)
@@ -130,6 +138,7 @@ class Config:
     mercado: Mercado = field(default_factory=Mercado)
     costos: Costos = field(default_factory=Costos)
     anuncios: Anuncios = field(default_factory=Anuncios)
+    pagos: Pagos = field(default_factory=Pagos)
     alertas: Alertas = field(default_factory=Alertas)
     banco: Banco = field(default_factory=Banco)
     panel: Panel = field(default_factory=Panel)
@@ -140,7 +149,7 @@ class Config:
         return ZoneInfo(self.general.zona_horaria)
 
 
-SECCIONES = ("general", "binance", "mercado", "costos", "anuncios", "alertas", "banco", "panel")
+SECCIONES = ("general", "binance", "mercado", "costos", "anuncios", "pagos", "alertas", "banco", "panel")
 
 # variable de entorno -> (sección, opción). Útil en Docker o en un VPS.
 VARIABLES_ENTORNO = {

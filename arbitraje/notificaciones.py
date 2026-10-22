@@ -19,13 +19,17 @@ class Telegram:
     def activo(self) -> bool:
         return bool(self.token and self.chat_id)
 
-    async def enviar(self, titulo: str, cuerpo: str = "") -> bool:
-        """Envía un aviso. Nunca lanza excepciones: un aviso fallido no debe frenar al bot."""
+    async def enviar(self, titulo: str, cuerpo: str = "", pre: bool = False) -> bool:
+        """Envía un aviso. Nunca lanza excepciones: un aviso fallido no debe frenar al bot.
+
+        pre=True envuelve el cuerpo en <pre>, que Telegram muestra en monoespaciado y
+        deja tocar para copiar (útil para el bloque de "Pegar Datos").
+        """
         if not self.activo:
             return False
         texto = f"<b>{html.escape(titulo)}</b>"
         if cuerpo:
-            texto += "\n" + html.escape(cuerpo)
+            texto += "\n" + (f"<pre>{html.escape(cuerpo)}</pre>" if pre else html.escape(cuerpo))
         try:
             r = await self.http.post(
                 f"https://api.telegram.org/bot{self.token}/sendMessage",

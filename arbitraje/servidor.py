@@ -20,7 +20,7 @@ from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from . import __version__, anuncios as mod_anuncios, banco, ganancias, mercado
+from . import __version__, anuncios as mod_anuncios, banco, ganancias, mercado, pagos as mod_pagos
 from .config import Config
 from .db import BaseDatos
 from .tareas import Motor
@@ -59,6 +59,16 @@ class CambioOrden(BaseModel):
 class TextoBanco(BaseModel):
     texto: str = Field(min_length=3, max_length=2000)
     fecha_ms: int | None = None
+
+
+class PrepararPago(BaseModel):
+    monto_bs: float = Field(default=0, ge=0)
+    telefono: str | None = Field(default=None, max_length=40)
+    cedula: str | None = Field(default=None, max_length=40)
+    banco: str | None = Field(default=None, max_length=60)
+    concepto: str | None = Field(default=None, max_length=120)
+    orden: str | None = Field(default=None, max_length=40)
+    texto: str | None = Field(default=None, max_length=2000)
 
 
 def credenciales_validas(cabecera: str, usuario: str, clave: str) -> bool:
@@ -161,6 +171,8 @@ def datos_panel(cfg: Config, db: BaseDatos, motor: Motor, periodo: str) -> dict:
             "telegram_configurado": motor.telegram.activo,
             "webhook_configurado": bool(cfg.banco.webhook_token),
             "intervalo_mercado_seg": cfg.mercado.intervalo_seg,
+            "bancos": mod_pagos.BANCOS_VE,
+            "banco_por_defecto": cfg.pagos.banco_por_defecto,
         },
         "estado": motor.estado,
         "resumen": resumen,
@@ -318,6 +330,16 @@ def crear_app(cfg: Config, iniciar_tareas: bool = True) -> FastAPI:
     @app.post("/api/banco/texto")
     async def registrar_texto(datos: TextoBanco):
         return await motor.procesar_aviso_banco(datos.texto, "manual", datos.fecha_ms)
+
+    @app.post("/api/pagos/preparar")
+    async def preparar_pago(datos: PrepararPago):
+        resultado = await motor.preparar_pago(
+            datos.monto_bs, telefono=datos.telefono, cedula=datos.cedula, banco=datos.banco,
+            concepto=datos.concepto, orden=datos.orden, texto=datos.texto,
+        )
+        if not resultado["ok"]:
+            raise HTTPException(422, resultado["error"])
+        return resultado
 
     @app.post("/api/banco/sms")
     async def webhook_sms(request: Request):
