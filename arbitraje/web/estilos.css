@@ -201,6 +201,27 @@ button:focus-visible, a:focus-visible, select:focus-visible, input:focus-visible
 .datos dt { color: var(--tinta-2); font-size: 13px; }
 .datos dd { margin: 0; text-align: right; font-weight: 500; font-size: 13px; }
 
+/* ---- sesión de operación ---- */
+.sesion { margin-top: 12px; }
+.sesion-acciones { display: flex; gap: 8px; align-items: center; }
+.sesion-inicio { display: flex; flex-wrap: wrap; gap: 10px 12px; align-items: flex-end; }
+.sesion-inicio label { flex: 1 1 150px; }
+.sesion-metricas { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+.sesion-metrica { display: flex; flex-direction: column; gap: 2px; padding: 12px 14px; border: 1px solid var(--borde); border-radius: 10px; background: var(--lavado); min-width: 0; }
+.sesion-metrica .valor { font-size: 22px; font-weight: 650; margin: 2px 0 0; }
+.sesion-metrica .valor.pos { color: var(--bien); }
+.sesion-metrica .valor.neg { color: var(--critico); }
+.recomendacion { margin-top: 12px; padding: 12px 14px; border-radius: 10px; border: 1px solid var(--borde); display: flex; gap: 12px; align-items: flex-start; }
+.recomendacion .accion { font-weight: 700; font-size: 14px; padding: 4px 12px; border-radius: 999px; white-space: nowrap; }
+.recomendacion[data-accion="COMPRAR"] .accion { background: rgba(42,120,214,0.14); color: var(--serie-1); }
+.recomendacion[data-accion="VENDER"] .accion { background: rgba(235,104,52,0.16); color: var(--serie-2); }
+.recomendacion[data-accion="ESPERAR"] .accion { background: var(--lavado); color: var(--tinta-2); }
+.recomendacion .texto { font-size: 13px; }
+.consejo-cierre { margin-top: 12px; padding: 10px 14px; border-radius: 8px; font-size: 13px; background: var(--lavado); border-left: 4px solid var(--aviso); }
+.consejo-cierre.ok { border-left-color: var(--bien); }
+.barra-composicion { height: 10px; border-radius: 999px; overflow: hidden; display: flex; background: var(--pista); margin-top: 6px; }
+.barra-composicion .parte-usdt { background: var(--acento); }
+
 /* ---- automatización de anuncios ---- */
 .anuncios { margin-top: 12px; }
 .an-acciones { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
@@ -311,6 +332,9 @@ td.texto-largo { white-space: normal; min-width: 260px; }
 td select { font: inherit; font-size: 12.5px; padding: 3px 6px; border-radius: 6px; border: 1px solid var(--borde); background: var(--superficie); color: var(--tinta-1); }
 .enlace-boton { border: 0; background: none; color: var(--acento); font: inherit; font-size: 12.5px; cursor: pointer; padding: 0; }
 .nota-tabla { font-size: 12.5px; color: var(--tinta-2); margin-bottom: 10px; }
+.campos-linea { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; align-items: stretch; }
+.campos-linea input { flex: 1 1 140px; min-width: 120px; }
+.campos-linea .boton { flex: 0 0 auto; }
 .lista-alertas { margin: 0 0 12px; padding: 10px 14px; border-radius: 8px; background: var(--lavado); border-left: 4px solid var(--aviso); font-size: 13px; }
 .lista-alertas li { margin-left: 16px; }
 .resumen-banco { display: flex; flex-wrap: wrap; gap: 8px 20px; margin-bottom: 10px; font-size: 13px; }

@@ -29,6 +29,9 @@ Hay una parte que **sí** se puede automatizar de forma segura y legal, y otra q
   comerciante** y API key con permiso de escritura.
 - 🧾 **Conciliación de pagos** del BDV: lee los SMS/notificaciones que tu teléfono le
   reenvía y los casa con la orden de Binance correspondiente.
+- 🛡️ **Verificación de identidad (anti-triangulación)**: compara los datos del banco
+  con la identidad que guardaste de la contraparte en Binance y te avisa **✅ coincide /
+  ⚠️ posible tercero** al pagar y al liberar.
 
 **NO se automatiza (a propósito):**
 - 🚫 **Mover dinero desde el Banco de Venezuela.** El BDV **no tiene una API pública**
@@ -156,6 +159,20 @@ ruta = "BDV"               # con qué ruta bancaria calcula el margen
 
 ---
 
+## Sesiones de operación (empezar y cerrar la jornada)
+
+En el panel, la tarjeta **"Sesión de operación"** te deja decirle al sistema con cuánto
+empiezas y en qué moneda (**bolívares o USDT**). A partir de ahí:
+
+- Mide tu **rendimiento** contra ese capital inicial (en USDT y en Bs).
+- Te dice **qué hacer ahora** (comprar / vender / esperar) según lo que tengas en mano
+  y el margen del momento, para sacarle el mayor provecho a la jornada.
+- Vigila tu **composición**: cuánto está resguardado en USDT y cuánto sigue expuesto en
+  bolívares. Como el bolívar se devalúa, te recomienda **cerrar el día en USDT**:
+  convierte el saldo en Bs antes de cerrar.
+- Al pulsar **"Cerrar sesión"** guarda el resultado y lo suma al **historial** para que
+  compares jornadas. Pensado para una operatividad **diaria**, pero sirve para cualquier período.
+
 ## El panel
 
 - **Indicadores**: ganancia neta del período (USDT y Bs), ganancia de hoy, ROI,
@@ -173,6 +190,9 @@ ruta = "BDV"               # con qué ruta bancaria calcula el margen
 - **Preparar pago para la BDVApp**: eliges la orden de compra por pagar (prellena el
   monto), pones los datos del vendedor (o pegas su bloque de la orden) y el panel arma
   el texto para **"Pegar Datos"** y te lo manda por Telegram. Tú pagas en la app.
+- **Contrapartes**: guarda la identidad verificada (nombre, cédula, teléfonos) de cada
+  apodo de Binance con el que operas. El panel la usa para verificar que el banco
+  coincida antes de pagar y antes de liberar.
 - **Formularios**: registrar una orden a mano y pegar un SMS del banco.
 - **Tema claro/oscuro** y diseño adaptado a teléfono.
 

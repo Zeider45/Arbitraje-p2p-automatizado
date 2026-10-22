@@ -82,6 +82,21 @@
     </article>
   </section>
 
+  <section class="tarjeta sesion" id="sesion" aria-labelledby="t-sesion">
+    <header class="cabecera">
+      <div>
+        <h2 id="t-sesion">Sesión de operación</h2>
+        <p class="sub" id="sesion-sub">Dile al sistema con cuánto empiezas y en qué moneda; te recomienda qué hacer y al cerrar ves tu rendimiento.</p>
+      </div>
+      <div class="sesion-acciones" id="sesion-acciones"></div>
+    </header>
+    <div id="sesion-cuerpo"></div>
+    <details class="sesion-historial" id="sesion-historial" hidden>
+      <summary>Sesiones anteriores</summary>
+      <div class="tabla-envoltura" id="sesion-historial-tabla"></div>
+    </details>
+  </section>
+
   <section class="fila-2">
     <article class="tarjeta" aria-labelledby="t-mercado">
       <header class="cabecera">
@@ -266,11 +281,13 @@
       <button type="button" role="tab" aria-selected="true" aria-controls="p-ordenes" id="tab-ordenes">Órdenes <span class="contador" id="c-ordenes"></span></button>
       <button type="button" role="tab" aria-selected="false" aria-controls="p-ciclos" id="tab-ciclos">Ciclos <span class="contador" id="c-ciclos"></span></button>
       <button type="button" role="tab" aria-selected="false" aria-controls="p-banco" id="tab-banco">Banco <span class="contador" id="c-banco"></span></button>
+      <button type="button" role="tab" aria-selected="false" aria-controls="p-contrapartes" id="tab-contrapartes">Contrapartes <span class="contador" id="c-contrapartes"></span></button>
       <button type="button" role="tab" aria-selected="false" aria-controls="p-eventos" id="tab-eventos">Eventos</button>
     </div>
     <div class="panel-pestana tabla-envoltura" id="p-ordenes" role="tabpanel" aria-labelledby="tab-ordenes"></div>
     <div class="panel-pestana tabla-envoltura" id="p-ciclos" role="tabpanel" aria-labelledby="tab-ciclos" hidden></div>
     <div class="panel-pestana" id="p-banco" role="tabpanel" aria-labelledby="tab-banco" hidden></div>
+    <div class="panel-pestana" id="p-contrapartes" role="tabpanel" aria-labelledby="tab-contrapartes" hidden></div>
     <div class="panel-pestana tabla-envoltura" id="p-eventos" role="tabpanel" aria-labelledby="tab-eventos" hidden></div>
   </section>
 

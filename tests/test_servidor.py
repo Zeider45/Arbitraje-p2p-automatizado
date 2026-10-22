@@ -102,11 +102,66 @@ def test_preparar_pago_sin_destino_falla(cliente):
     assert r.status_code == 422
 
 
+def test_contrapartes_crud(cliente):
+    r = cliente.put("/api/contrapartes", json={"nick": "Yor***", "nombre": "Juan Pérez",
+                                               "cedula": "V-12.345.678", "telefonos": "0414-1234567"})
+    assert r.status_code == 200
+    assert r.json()["nombre"] == "Juan Pérez"
+    assert any(c["nick"] == "Yor***" for c in cliente.get("/api/contrapartes").json())
+    assert cliente.delete("/api/contrapartes/Yor***").json()["ok"] is True
+    assert cliente.delete("/api/contrapartes/Yor***").status_code == 404
+
+
+def test_preparar_pago_verifica_tercero(cliente):
+    # guarda la identidad verificada de una contraparte
+    cliente.put("/api/contrapartes", json={"nick": "VendedorX", "cedula": "V12345678",
+                                           "telefonos": "04141234567"})
+    # pagar a un teléfono distinto -> posible tercero, no se envía sin confirmar
+    r = cliente.post("/api/pagos/preparar", json={
+        "monto_bs": 1000, "telefono": "0424-9999999", "contraparte": "VendedorX"}).json()
+    assert r["ok"] is False
+    assert r["requiere_confirmacion"] is True
+    assert r["veredicto"]["nivel"] == "difiere"
+    # al confirmar, sí arma el bloque
+    r2 = cliente.post("/api/pagos/preparar", json={
+        "monto_bs": 1000, "telefono": "0424-9999999", "contraparte": "VendedorX", "confirmar": True}).json()
+    assert r2["ok"] is True
+    # pagar al teléfono correcto -> coincide
+    r3 = cliente.post("/api/pagos/preparar", json={
+        "monto_bs": 1000, "telefono": "0414-1234567", "contraparte": "VendedorX"}).json()
+    assert r3["ok"] is True
+    assert r3["veredicto"]["nivel"] == "coincide"
+
+
 def test_reposicionar_simulacion(cliente):
     r = cliente.post("/api/anuncios/reposicionar").json()
     assert r["ok"] is True
     assert r["modo"] == "simular"
     assert "plan" in r
+
+
+def test_sesion_iniciar_cerrar(cliente):
+    # el panel ya trae una sesión (la demo); ciérrala primero
+    d = cliente.get("/api/panel?periodo=hoy").json()
+    assert d["sesion"] is not None
+    assert cliente.post("/api/sesion/cerrar", json={}).json()["ok"] is True
+    # ahora se puede iniciar una nueva
+    r = cliente.post("/api/sesion/iniciar", json={"capital_inicial": 500, "moneda_inicial": "USDT"})
+    assert r.status_code == 201
+    assert r.json()["moneda_inicial"] == "USDT"
+    # no se permite una segunda abierta
+    assert cliente.post("/api/sesion/iniciar", json={"capital_inicial": 100, "moneda_inicial": "VES"}).status_code == 409
+    # el panel ahora refleja la sesión USDT y su recomendación
+    s = cliente.get("/api/panel?periodo=hoy").json()["sesion"]
+    assert s["moneda_inicial"] == "USDT"
+    assert s["capital_inicial_usdt"] == 500
+    assert "recomendacion" in s
+
+
+def test_sesion_historial(cliente):
+    # la demo deja una sesión de ayer ya cerrada
+    sesiones = cliente.get("/api/panel?periodo=hoy").json()["sesiones"]
+    assert any(x["estado"] == "cerrada" for x in sesiones)
 
 
 def test_credenciales_validas():

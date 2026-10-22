@@ -159,11 +159,21 @@ def sembrar(db: BaseDatos, cfg: Config, dias: int = 45, semilla: int = 7, ahora:
             ordenes.append(orden("COMPRA", round(rnd.uniform(30, 120), 2),
                                  base + rnd.randint(9 * 60, 19 * 60) * MINUTO_MS, estado="CANCELLED"))
         dia += timedelta(days=1)
-    # una venta en curso: el comprador ya marcó "pagado" y llegó el SMS
-    ordenes.append(orden("VENTA", 64.5, fin - 4 * MINUTO_MS, estado="BUYER_PAYED"))
+    # una venta en curso, con contraparte conocida: el comprador ya pagó (muestra ✅ al verificar)
+    venta_curso = orden("VENTA", 64.5, fin - 4 * MINUTO_MS, estado="BUYER_PAYED")
+    venta_curso["contraparte"] = "Kelvin***"
+    ordenes.append(venta_curso)
     # una compra en curso: te toca pagarle al vendedor (aparece en "preparar pago")
-    ordenes.append(orden("COMPRA", 72.0, fin - 6 * MINUTO_MS, estado="TRADING"))
+    compra_curso = orden("COMPRA", 72.0, fin - 6 * MINUTO_MS, estado="TRADING")
+    compra_curso["contraparte"] = "Camila***"
+    ordenes.append(compra_curso)
     db.guardar_ordenes(ordenes)
+
+    # Contrapartes con identidad verificada (lo que verías en el perfil de Binance)
+    db.guardar_contraparte({"nick": "Kelvin***", "nombre": "Kelvin Rodríguez", "cedula": "V18456789",
+                            "telefonos": "04141234567", "confianza": "verificada"})
+    db.guardar_contraparte({"nick": "Camila***", "nombre": "Camila Fernández", "cedula": "V21987654",
+                            "telefonos": "04241112233", "confianza": "verificada"})
 
     # 3) Avisos de pago del banco de los últimos 3 días (SMS simulados)
     def telefono() -> str:
@@ -172,6 +182,8 @@ def sembrar(db: BaseDatos, cfg: Config, dias: int = 45, semilla: int = 7, ahora:
     for o in ordenes:
         if o["creada_ms"] < fin - 3 * DIA_MS or o["estado"].startswith("CANCEL"):
             continue
+        if o is venta_curso:
+            continue  # su SMS se crea aparte, con el teléfono que coincide con la contraparte
         monto = formato_numero(o["total_bs"])
         referencia = f"{rnd.randint(10**11, 10**12 - 1)}"
         if o["tipo"] == "VENTA":
@@ -184,6 +196,12 @@ def sembrar(db: BaseDatos, cfg: Config, dias: int = 45, semilla: int = 7, ahora:
             tipo = "SALIDA"
         db.guardar_movimiento({"ts_ms": min(ts, fin), "tipo": tipo, "monto_bs": o["total_bs"],
                                "referencia": referencia, "texto": texto, "origen": "demo"})
+    # el pago de la venta en curso, con el teléfono que SÍ coincide con la contraparte guardada
+    db.guardar_movimiento({
+        "ts_ms": venta_curso["creada_ms"] + 2 * MINUTO_MS, "tipo": "ENTRADA", "monto_bs": venta_curso["total_bs"],
+        "referencia": f"{rnd.randint(10**11, 10**12 - 1)}", "contraparte": "0414-1234567", "origen": "demo",
+        "texto": f"DEMO BDV: Recibiste un PagomovilBDV por Bs. {formato_numero(venta_curso['total_bs'])} "
+                 f"del 0414-1234567 Ref: pago verificado"})
     # un pago que no corresponde a ninguna orden (el panel lo marca como sospechoso)
     db.guardar_movimiento({"ts_ms": fin - DIA_MS - 3 * HORA_MS, "tipo": "ENTRADA", "monto_bs": 48750.0,
                            "referencia": "998877665544", "contraparte": "0414-5550199", "origen": "demo",
@@ -204,5 +222,15 @@ def sembrar(db: BaseDatos, cfg: Config, dias: int = 45, semilla: int = 7, ahora:
                 f"Comprar USDT: {formato_numero(f['precio_compra'])} · Vender USDT: {formato_numero(f['precio_venta'])}.",
                 ts_ms=f["ts_ms"],
             )
+    # 5) Sesiones de operación: una de ayer ya cerrada (para el historial) y la de hoy abierta
+    precio_ref = precios[-1][0]
+    cap_ves = round(cfg.general.capital_usdt * precio_ref, 2)
+    hoy0 = inicio_dia_ms(fecha_local(fin, tz), tz)
+    ayer = db.abrir_sesion({"inicio_ms": hoy0 - DIA_MS, "capital_inicial": cap_ves, "moneda_inicial": "VES",
+                            "precio_inicial": precio_ref, "nota": "Jornada de ayer (demo)"})
+    db.cerrar_sesion(ayer["id"], round(cap_ves * 1.018, 2), "Cerrada en USDT, +1,8 %")
+    db.abrir_sesion({"inicio_ms": hoy0, "capital_inicial": cap_ves, "moneda_inicial": "VES",
+                     "precio_inicial": precio_ref, "nota": "Jornada de hoy (demo)"})
+
     db.registrar_evento("info", "Modo demo: datos simulados de 45 días. Nada de esto es real.", ts_ms=fin)
     db.escribir_estado("demo_sembrado", 1)

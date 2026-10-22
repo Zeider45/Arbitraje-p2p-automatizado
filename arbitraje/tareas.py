@@ -9,7 +9,7 @@ from datetime import datetime, timedelta
 import httpx
 
 from . import anuncios as mod_anuncios
-from . import banco, binance_api, ganancias, mercado, pagos as mod_pagos
+from . import banco, binance_api, ganancias, identidad as mod_identidad, mercado, pagos as mod_pagos
 from .config import Config
 from .db import BaseDatos
 from .notificaciones import Telegram
@@ -332,6 +332,12 @@ class Motor:
                     f"Coincide con tu orden de venta {orden['numero']} "
                     f"({formato_numero(orden['cantidad'])} USDT, estado {orden['estado']})."
                 )
+                obs = mod_identidad.Observado(cedula=mod_pagos.normalizar_cedula(aviso.contraparte),
+                                              telefono=mod_pagos.normalizar_telefono(aviso.contraparte))
+                v = mod_identidad.verificar(self.perfil_contraparte(orden.get("contraparte")), obs)
+                lineas.append(("✅ " if v.coincide else "⚠️ " if v.difiere else "❔ ") + v.resumen)
+                if v.difiere:
+                    titulo = "⚠️ Pago recibido — POSIBLE TERCERO"
             else:
                 lineas.append("Todavía no lo asocio a ninguna orden de Binance.")
             lineas.append("Antes de liberar: confírmalo en tu BDVApp y verifica que el titular sea el comprador.")
@@ -342,6 +348,29 @@ class Motor:
         cuerpo = "\n".join(lineas)
         self.db.registrar_evento("pago", f"{titulo}. {' '.join(lineas)}")
         await self.telegram.enviar(titulo, cuerpo)
+
+    # ---- verificación de identidad de la contraparte -------------------------------
+
+    def perfil_contraparte(self, nick: str | None) -> mod_identidad.Perfil:
+        fila = self.db.contraparte(nick) if nick else None
+        if not fila:
+            return mod_identidad.Perfil()
+        tels = [t.strip() for t in (fila.get("telefonos") or "").split(",") if t.strip()]
+        return mod_identidad.Perfil(nombre=fila.get("nombre"), cedula=fila.get("cedula"), telefonos=tels)
+
+    def _veredicto_dict(self, v: mod_identidad.Veredicto, nick: str | None) -> dict:
+        return {"nivel": v.nivel, "campos": v.campos, "resumen": v.resumen, "contraparte": nick}
+
+    def verificar_pago_recibido(self, movimiento: dict, orden: dict | None) -> dict | None:
+        """Compara al pagador (del SMS) con el perfil de Binance de la orden de venta."""
+        if not orden:
+            return None
+        perfil = self.perfil_contraparte(orden.get("contraparte"))
+        obs = mod_identidad.Observado(
+            cedula=mod_pagos.normalizar_cedula(movimiento.get("contraparte") or movimiento.get("texto")),
+            telefono=mod_pagos.normalizar_telefono(movimiento.get("contraparte") or movimiento.get("texto")),
+        )
+        return self._veredicto_dict(mod_identidad.verificar(perfil, obs), orden.get("contraparte"))
 
     # ---- preparar pago (BDVApp "Pegar Datos") --------------------------------------
 
@@ -354,9 +383,15 @@ class Motor:
         banco: str | None = None,
         concepto: str | None = None,
         orden: str | None = None,
+        contraparte: str | None = None,
         texto: str | None = None,
+        confirmar: bool = False,
     ) -> dict:
-        """Arma el bloque para pegar en la BDVApp y lo manda por Telegram. No paga nada."""
+        """Arma el bloque para pegar en la BDVApp y lo manda por Telegram. No paga nada.
+
+        Antes de enviar verifica que el beneficiario coincida con la contraparte de
+        Binance; si difiere (posible tercero), no envía salvo que confirmes.
+        """
         extra = mod_pagos.extraer_de_texto(texto) if texto else {}
         monto_bs = monto_bs or extra.get("monto_bs") or 0.0
         if concepto is None and orden:
@@ -372,20 +407,37 @@ class Motor:
             )
         except mod_pagos.ErrorPago as e:
             return {"ok": False, "error": str(e)}
+
+        # ¿a quién le pagas? verifica contra el perfil guardado de esa contraparte
+        nick = contraparte
+        if not nick and orden:
+            o = self.db.orden(orden)
+            nick = o.get("contraparte") if o else None
+        perfil = self.perfil_contraparte(nick)
+        veredicto = mod_identidad.verificar(
+            perfil, mod_identidad.Observado(cedula=datos.cedula, telefono=datos.telefono)
+        )
+        ver = self._veredicto_dict(veredicto, nick)
+        if veredicto.difiere and not confirmar:
+            self.db.registrar_evento("error", f"Pago bloqueado por verificación: {veredicto.resumen} (orden {orden or '-'})")
+            return {"ok": False, "error": veredicto.resumen, "veredicto": ver, "requiere_confirmacion": True}
+
         bloque = mod_pagos.formatear(datos, self.cfg.pagos.plantilla)
         enviado = False
         if self.cfg.pagos.enviar_telegram:
+            encabezado = "⚠️ VERIFICA: " + veredicto.resumen + "\n\n" if veredicto.difiere else ""
             enviado = await self.telegram.enviar(
                 f"Pago por preparar: Bs {formato_numero(datos.monto_bs)}",
-                "Pega esto en “Pegar Datos” de tu BDVApp, confirma con tu clave y envía:\n\n" + bloque,
+                encabezado + "Pega esto en “Pegar Datos” de tu BDVApp, confirma con tu clave y envía:\n\n" + bloque,
                 pre=True,
             )
         self.db.registrar_evento(
             "pago",
             f"Pago preparado: Bs {formato_numero(datos.monto_bs)} a "
-            + (datos.telefono or datos.cedula or "?") + (f" (orden {orden})" if orden else ""),
+            + (datos.telefono or datos.cedula or "?") + (f" (orden {orden})" if orden else "")
+            + (" — ⚠️ verificación difiere, enviado bajo tu confirmación" if veredicto.difiere else ""),
         )
-        return {"ok": True, "bloque": bloque, "enviado": enviado,
+        return {"ok": True, "bloque": bloque, "enviado": enviado, "veredicto": ver,
                 "datos": {"monto_bs": datos.monto_bs, "telefono": datos.telefono, "cedula": datos.cedula,
                           "banco_codigo": datos.banco_codigo, "banco_nombre": datos.banco_nombre,
                           "concepto": datos.concepto}}

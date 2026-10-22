@@ -67,6 +67,32 @@ CREATE TABLE IF NOT EXISTS eventos (
     mensaje  TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS contrapartes (
+    clave          TEXT PRIMARY KEY,   -- apodo de Binance en minúsculas
+    nick           TEXT NOT NULL,
+    nombre         TEXT,               -- nombre verificado en el perfil de Binance
+    cedula         TEXT,
+    telefonos      TEXT,               -- separados por coma, ya normalizados
+    bancos         TEXT,
+    confianza      TEXT NOT NULL DEFAULT 'nueva',   -- nueva | verificada | sospechosa
+    nota           TEXT,
+    actualizado_ms INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS sesiones (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    inicio_ms       INTEGER NOT NULL,
+    capital_inicial REAL NOT NULL,
+    moneda_inicial  TEXT NOT NULL CHECK (moneda_inicial IN ('VES', 'USDT')),
+    precio_inicial  REAL,                       -- Bs/USDT de referencia al abrir
+    nota            TEXT,
+    estado          TEXT NOT NULL DEFAULT 'abierta',   -- abierta | cerrada
+    cierre_ms       INTEGER,
+    capital_final   REAL,                       -- valuación al cerrar, en moneda_inicial
+    nota_cierre     TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_sesiones_inicio ON sesiones (inicio_ms);
+
 CREATE TABLE IF NOT EXISTS estado (
     clave  TEXT PRIMARY KEY,
     valor  TEXT
@@ -289,6 +315,87 @@ class BaseDatos:
     def asignar_movimiento(self, movimiento_id: int, numero: str) -> None:
         with self.conexion() as c:
             c.execute("UPDATE movimientos_banco SET orden_numero = ? WHERE id = ?", (numero, movimiento_id))
+
+    # ---- contrapartes (identidad verificada) ---------------------------------------
+
+    def guardar_contraparte(self, fila: dict) -> None:
+        nick = (fila.get("nick") or "").strip()
+        if not nick:
+            raise ValueError("La contraparte necesita un apodo de Binance.")
+        datos = {
+            "clave": nick.lower(), "nick": nick, "nombre": fila.get("nombre"),
+            "cedula": fila.get("cedula"), "telefonos": fila.get("telefonos"),
+            "bancos": fila.get("bancos"), "confianza": fila.get("confianza") or "nueva",
+            "nota": fila.get("nota"), "actualizado_ms": ahora_ms(),
+        }
+        with self.conexion() as c:
+            c.execute(
+                """
+                INSERT INTO contrapartes (clave, nick, nombre, cedula, telefonos, bancos, confianza, nota, actualizado_ms)
+                VALUES (:clave, :nick, :nombre, :cedula, :telefonos, :bancos, :confianza, :nota, :actualizado_ms)
+                ON CONFLICT (clave) DO UPDATE SET
+                    nick = excluded.nick, nombre = excluded.nombre, cedula = excluded.cedula,
+                    telefonos = excluded.telefonos, bancos = excluded.bancos,
+                    confianza = excluded.confianza, nota = excluded.nota, actualizado_ms = excluded.actualizado_ms
+                """,
+                datos,
+            )
+
+    def contraparte(self, nick: str) -> dict | None:
+        if not nick:
+            return None
+        with self.conexion() as c:
+            r = c.execute("SELECT * FROM contrapartes WHERE clave = ?", (nick.strip().lower(),)).fetchone()
+        return dict(r) if r else None
+
+    def contrapartes(self) -> list[dict]:
+        with self.conexion() as c:
+            return [dict(r) for r in c.execute("SELECT * FROM contrapartes ORDER BY nick")]
+
+    def borrar_contraparte(self, nick: str) -> bool:
+        with self.conexion() as c:
+            return c.execute("DELETE FROM contrapartes WHERE clave = ?", (nick.strip().lower(),)).rowcount > 0
+
+    # ---- sesiones de operación -----------------------------------------------------
+
+    def abrir_sesion(self, fila: dict) -> dict:
+        if self.sesion_abierta():
+            raise ValueError("Ya tienes una sesión abierta. Ciérrala antes de abrir otra.")
+        with self.conexion() as c:
+            cur = c.execute(
+                """
+                INSERT INTO sesiones (inicio_ms, capital_inicial, moneda_inicial, precio_inicial, nota, estado)
+                VALUES (:inicio_ms, :capital_inicial, :moneda_inicial, :precio_inicial, :nota, 'abierta')
+                """,
+                {"inicio_ms": fila.get("inicio_ms") or ahora_ms(), "capital_inicial": fila["capital_inicial"],
+                 "moneda_inicial": fila["moneda_inicial"], "precio_inicial": fila.get("precio_inicial"),
+                 "nota": fila.get("nota")},
+            )
+            sid = cur.lastrowid
+        return self.sesion(sid)
+
+    def sesion(self, sesion_id: int) -> dict | None:
+        with self.conexion() as c:
+            r = c.execute("SELECT * FROM sesiones WHERE id = ?", (sesion_id,)).fetchone()
+        return dict(r) if r else None
+
+    def sesion_abierta(self) -> dict | None:
+        with self.conexion() as c:
+            r = c.execute("SELECT * FROM sesiones WHERE estado = 'abierta' ORDER BY inicio_ms DESC LIMIT 1").fetchone()
+        return dict(r) if r else None
+
+    def sesiones(self, limite: int = 50) -> list[dict]:
+        with self.conexion() as c:
+            return [dict(r) for r in c.execute("SELECT * FROM sesiones ORDER BY inicio_ms DESC LIMIT ?", (limite,))]
+
+    def cerrar_sesion(self, sesion_id: int, capital_final: float, nota_cierre: str | None = None) -> dict | None:
+        with self.conexion() as c:
+            c.execute(
+                "UPDATE sesiones SET estado = 'cerrada', cierre_ms = ?, capital_final = ?, nota_cierre = ? "
+                "WHERE id = ? AND estado = 'abierta'",
+                (ahora_ms(), capital_final, nota_cierre, sesion_id),
+            )
+        return self.sesion(sesion_id)
 
     # ---- eventos y estado ----------------------------------------------------------
 

@@ -11,6 +11,11 @@
     DISTRIBUTING: "Liberando", IN_APPEAL: "En apelación",
   };
   const NIVELES = { info: "Info", oportunidad: "Oportunidad", pago: "Pago", error: "Error" };
+  const VEREDICTO = {
+    coincide: { clase: "estado-ok", texto: "Titular coincide" },
+    difiere: { clase: "estado-alerta", texto: "⚠️ Posible tercero" },
+    sin_datos: { clase: "estado-neutro", texto: "Sin verificar" },
+  };
   const PERIODOS = ["hoy", "7d", "30d", "90d", "todo"];
   const ESTADOS_POR_PAGAR = new Set(["PENDING", "TRADING"]);  // compras tuyas aún por pagar
   const DIA_MS = 86400000;
@@ -78,6 +83,11 @@
   }
   function poner(id, texto) { const n = document.getElementById(id); if (n) n.textContent = texto; }
   const rutaTexto = (ruta) => (ruta === "BDV" ? "BDV → BDV" : "interbancario");
+
+  function badgeVeredicto(v) {
+    const m = VEREDICTO[(v && v.nivel) || "sin_datos"] || VEREDICTO.sin_datos;
+    return el("span", { class: m.clase, title: (v && v.resumen) || "", text: m.texto });
+  }
   const ejeNumero = (v, paso) => num(v, paso < 0.1 ? 2 : paso < 1 ? 1 : 0);
 
   async function api(ruta, opciones) {
@@ -111,6 +121,7 @@
     zona = d.config.zona_horaria || zona;
     renderCabecera(d);
     renderKpis(d);
+    renderSesion(d);
     renderMercado(d);
     renderOperacion(d);
     renderAnuncios(d);
@@ -119,6 +130,7 @@
     renderOrdenes(d);
     renderCiclos(d);
     renderBanco(d);
+    renderContrapartes(d);
     renderEventos(d);
   }
 
@@ -186,6 +198,118 @@
     poner("k-ciclos-det", r.ciclos ? `≈ ${num(r.ganancia_usdt / r.ciclos)} USDT por ciclo` : "aún sin ciclos cerrados");
     poner("k-ordenes", num(r.ordenes.completadas, 0));
     poner("k-ordenes-det", `${r.ordenes.compras} compras · ${r.ordenes.ventas} ventas · ${r.ordenes.canceladas} canceladas`);
+  }
+
+  // ---- sesión de operación ---------------------------------------------------
+
+  function metrica(etiqueta, valor, sub, clase) {
+    return el("div", { class: "sesion-metrica" },
+      el("span", { class: "etiqueta", text: etiqueta }),
+      el("span", { class: "valor" + (clase ? " " + clase : ""), text: valor }),
+      sub ? el("span", { class: "sub", text: sub }) : null);
+  }
+
+  function formularioSesion() {
+    const cont = $("#sesion-cuerpo");
+    cont.textContent = "";
+    const f = el("form", { class: "sesion-inicio", id: "f-sesion" });
+    const capital = el("input", { name: "capital", type: "number", step: "0.01", min: "0.01", required: "", placeholder: "1000" });
+    const moneda = el("select", { name: "moneda" }, el("option", { value: "VES", text: "Bolívares (Bs)" }), el("option", { value: "USDT", text: "USDT" }));
+    const nota = el("input", { name: "nota", maxlength: "200", placeholder: "opcional" });
+    f.append(
+      el("label", {}, "¿Con cuánto empiezas?", capital),
+      el("label", {}, "¿En qué moneda?", moneda),
+      el("label", {}, "Nota", nota),
+      el("button", { type: "submit", class: "boton", text: "Iniciar operación" }));
+    f.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      try {
+        await api("/api/sesion/iniciar", { method: "POST", body: JSON.stringify({
+          capital_inicial: Number(capital.value), moneda_inicial: moneda.value, nota: nota.value || null }) });
+        cargar(false);
+      } catch (err) {
+        avisos([`No pude iniciar la sesión: ${err.message}`]);
+      }
+    });
+    cont.append(f);
+  }
+
+  async function cerrarSesion() {
+    if (!window.confirm("¿Cerrar la sesión y guardar el rendimiento?")) return;
+    try {
+      const r = await api("/api/sesion/cerrar", { method: "POST", body: JSON.stringify({}) });
+      const rend = r.resumen && r.resumen.rendimiento_total_pct;
+      avisos([`Sesión cerrada. Rendimiento: ${conSigno(rend)} %.`]);
+      cargar(false);
+    } catch (err) {
+      avisos([`No pude cerrar la sesión: ${err.message}`]);
+    }
+  }
+
+  function panelSesion(s, moneda, precioActual) {
+    const cont = $("#sesion-cuerpo");
+    cont.textContent = "";
+    const esVes = s.moneda_inicial === "VES";
+    const capTxt = esVes ? `Bs ${num(s.capital_inicial, 0)}` : `${num(s.capital_inicial)} USDT`;
+    const capSub = s.capital_inicial_usdt != null && esVes ? `≈ ${num(s.capital_inicial_usdt)} USDT` : "";
+    const equity = esVes ? (s.equity_ves != null ? `Bs ${num(s.equity_ves, 0)}` : "—") : (s.equity_usdt != null ? `${num(s.equity_usdt)} USDT` : "—");
+    const equitySub = s.equity_usdt != null ? (esVes ? `≈ ${num(s.equity_usdt)} USDT` : (s.equity_ves != null ? `≈ Bs ${num(s.equity_ves, 0)}` : "")) : "";
+    const rend = s.rendimiento_total_pct;
+    const signo = rend == null ? "" : rend >= 0 ? "pos" : "neg";
+    const gan = s.ganancia_usdt;
+    cont.append(el("div", { class: "sesion-metricas" },
+      metrica("Capital inicial", capTxt, capSub),
+      metrica("Equity actual", equity, equitySub),
+      metrica("Rendimiento", rend == null ? "—" : `${conSigno(rend)} %`, `${s.ciclos} ciclos · ${s.dias} ${s.dias === 1 ? "día" : "días"}`, signo),
+      metrica("Ganancia", gan == null ? "—" : `${conSigno(gan)} USDT`, s.ganancia_ves != null ? `Bs ${conSigno(s.ganancia_ves, 0)}` : "", signo)));
+
+    const rec = s.recomendacion;
+    if (rec) {
+      const caja = el("div", { class: "recomendacion", "data-accion": rec.accion });
+      caja.append(el("span", { class: "accion", text: rec.accion }));
+      const t = el("div", { class: "texto" }, el("strong", { text: "Qué hacer ahora: " }), rec.razon);
+      if (rec.precio && rec.accion !== "ESPERAR") t.append(el("div", { class: "sub", text: `Precio objetivo: ${num(rec.precio)} Bs` }));
+      caja.append(t);
+      cont.append(caja);
+    }
+
+    // composición: cuánto está resguardado en USDT vs expuesto en Bs
+    if (s.expuesto_ves_pct != null) {
+      const usdtPct = Math.max(0, Math.min(100, 100 - s.expuesto_ves_pct));
+      const barra = el("div", { class: "barra-composicion", title: `${num(usdtPct, 0)} % en USDT` },
+        el("div", { class: "parte-usdt", style: `width:${usdtPct}%` }));
+      const consejo = el("div", { class: "consejo-cierre" + (s.resguardado ? " ok" : "") },
+        el("strong", { text: s.resguardado ? "✅ " : "⚠️ Cierre del día: " }), s.consejo_cierre || "");
+      cont.append(el("div", {}, el("span", { class: "etiqueta", text: "Composición actual (USDT resguardado vs Bs expuesto)" }), barra), consejo);
+    }
+  }
+
+  function renderSesion(d) {
+    const s = d.sesion;
+    const acciones = $("#sesion-acciones");
+    acciones.textContent = "";
+    if (s) {
+      poner("sesion-sub", `Operando desde ${fechaHora(s.inicio_ms)} · cierre típico: diario.`);
+      acciones.append(el("button", { type: "button", class: "boton secundario", text: "Cerrar sesión", onclick: cerrarSesion }));
+      panelSesion(s, s.moneda_inicial, (d.mercado.actual || {}).precio_venta);
+    } else {
+      poner("sesion-sub", "Dile al sistema con cuánto empiezas y en qué moneda; te recomienda qué hacer y al cerrar ves tu rendimiento.");
+      formularioSesion();
+    }
+    // historial de sesiones cerradas
+    const cerradas = (d.sesiones || []).filter((x) => x.estado === "cerrada");
+    const hist = $("#sesion-historial");
+    hist.hidden = cerradas.length === 0;
+    if (cerradas.length) {
+      G.tabla($("#sesion-historial-tabla"), [
+        { titulo: "Inicio", valor: (x) => fechaHora(x.inicio_ms) },
+        { titulo: "Cierre", valor: (x) => (x.cierre_ms ? fechaHora(x.cierre_ms) : "—") },
+        { titulo: "Moneda", valor: (x) => x.moneda_inicial },
+        { titulo: "Capital inicial", num: true, valor: (x) => num(x.capital_inicial, x.moneda_inicial === "VES" ? 0 : 2) },
+        { titulo: "Capital final", num: true, valor: (x) => (x.capital_final != null ? num(x.capital_final, x.moneda_inicial === "VES" ? 0 : 2) : "—") },
+        { titulo: "Rendimiento", num: true, valor: (x) => (x.capital_final != null && x.capital_inicial ? conSigno((x.capital_final / x.capital_inicial - 1) * 100) + " %" : "—") },
+      ], cerradas);
+    }
   }
 
   // ---- mercado ---------------------------------------------------------------
@@ -354,8 +478,9 @@
         if (!f.concepto.value) f.concepto.value = `Pago USDT orden ${op.value}`;
       }
     });
-    f.addEventListener("submit", async (e) => {
-      e.preventDefault();
+    const resultado = $("#pago-resultado");
+
+    const enviar = async (confirmar) => {
       const cuerpo = {
         monto_bs: Number(f.monto_bs.value || 0),
         telefono: f.telefono.value || null,
@@ -364,20 +489,37 @@
         concepto: f.concepto.value || null,
         orden: f.orden.value || null,
         texto: f.texto.value || null,
+        confirmar: !!confirmar,
       };
+      resultado.textContent = "";
       try {
         const r = await api("/api/pagos/preparar", { method: "POST", body: JSON.stringify(cuerpo) });
+        if (r.requiere_confirmacion) {
+          // identidad no coincide: no se envió, pedimos confirmación explícita
+          bloque.hidden = true;
+          copiar.hidden = true;
+          const v = r.veredicto;
+          resultado.append(el("span", { class: "estado-alerta", text: (v && v.resumen) || "Posible tercero." }), " ");
+          const btn = el("button", { type: "button", class: "enlace-boton", text: "Preparar de todos modos",
+            onclick: () => enviar(true) });
+          resultado.append(document.createElement("br"), btn);
+          return;
+        }
         bloque.textContent = r.bloque;
         bloque.hidden = false;
         copiar.hidden = false;
-        poner("pago-resultado", r.enviado ? "Enviado a Telegram. Ábrelo, copia el bloque y pégalo en “Pegar Datos” de tu BDVApp."
+        const v = r.veredicto;
+        if (v) resultado.append(badgeVeredicto(v), " ");
+        resultado.append(r.enviado
+          ? "Enviado a Telegram. Ábrelo, copia el bloque y pégalo en “Pegar Datos” de tu BDVApp."
           : "Bloque listo (Telegram no está configurado). Cópialo y pégalo en tu BDVApp.");
       } catch (err) {
         bloque.hidden = true;
         copiar.hidden = true;
-        poner("pago-resultado", `No pude preparar el pago: ${err.message}`);
+        resultado.textContent = `No pude preparar el pago: ${err.message}`;
       }
-    });
+    };
+    f.addEventListener("submit", (e) => { e.preventDefault(); enviar(false); });
     copiar.addEventListener("click", async () => {
       try {
         await navigator.clipboard.writeText(bloque.textContent);
@@ -574,10 +716,12 @@
       const caja = el("div", { class: "lista-liberar" }, el("h4", { text: `Listas para liberar (${c.por_liberar.length})` }));
       const lista = el("ul");
       for (const x of c.por_liberar) {
-        lista.append(el("li", { text: `Orden ${x.orden.numero}: ${num(x.orden.cantidad)} USDT · pago de Bs ${num(x.pago.monto_bs)}`
-          + (x.pago.contraparte ? ` de ${x.pago.contraparte}` : "") + (x.pago.referencia ? ` (Ref ${x.pago.referencia})` : "") }));
+        const li = el("li", {}, `Orden ${x.orden.numero}: ${num(x.orden.cantidad)} USDT · pago de Bs ${num(x.pago.monto_bs)}`
+          + (x.pago.contraparte ? ` de ${x.pago.contraparte}` : "") + (x.pago.referencia ? ` (Ref ${x.pago.referencia})` : "") + " ");
+        li.append(badgeVeredicto(x.verificacion));
+        lista.append(li);
       }
-      caja.append(lista, el("p", { class: "recordatorio", text: "Antes de liberar en Binance: confirma el pago en tu BDVApp y que el titular sea el mismo comprador. La liberación la haces tú en la app de Binance." }));
+      caja.append(lista, el("p", { class: "recordatorio", text: "Antes de liberar en Binance: confirma el pago en tu BDVApp y que el titular sea el mismo comprador. Si ves “posible tercero”, no liberes. La liberación la haces tú en la app de Binance." }));
       cont.append(caja);
     }
     cont.append(el("div", { class: "resumen-banco" },
@@ -597,6 +741,59 @@
         ? el("span", { class: "estado-ok", text: "Conciliado" })
         : el("span", { class: "estado-alerta", text: "Sin orden: revísalo" })) },
     ], d.banco.movimientos);
+  }
+
+  function renderContrapartes(d) {
+    const cont = $("#p-contrapartes");
+    const lista = d.contrapartes || [];
+    poner("c-contrapartes", lista.length ? String(lista.length) : "");
+    cont.textContent = "";
+    cont.append(el("p", { class: "nota-tabla", text: "Guarda la identidad verificada de cada contraparte (lo que ves en su perfil/orden de Binance). El bot la usa para avisarte si el banco no coincide al pagar o al liberar." }));
+    // formulario para agregar/editar
+    const f = el("form", { class: "campos-linea", id: "f-contraparte", autocomplete: "off" });
+    const campo = (nombre, ph, w) => el("input", { name: nombre, placeholder: ph, style: `flex:${w}` });
+    const nick = campo("nick", "Apodo en Binance *", "1.2");
+    const nombre = campo("nombre", "Nombre verificado", "1.4");
+    const cedula = campo("cedula", "Cédula/RIF", "1");
+    const tel = campo("telefonos", "Teléfonos (coma)", "1.2");
+    const guardar = el("button", { type: "submit", class: "boton", text: "Guardar" });
+    f.append(nick, nombre, cedula, tel, guardar);
+    f.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      if (!nick.value.trim()) return;
+      try {
+        await api("/api/contrapartes", { method: "PUT", body: JSON.stringify({
+          nick: nick.value.trim(), nombre: nombre.value || null, cedula: cedula.value || null,
+          telefonos: tel.value || null, confianza: "verificada",
+        }) });
+        cargar(false);
+      } catch (err) {
+        avisos([`No pude guardar la contraparte: ${err.message}`]);
+      }
+    });
+    cont.append(f);
+    const envoltura = el("div", { class: "tabla-envoltura" });
+    cont.append(envoltura);
+    G.tabla(envoltura, [
+      { titulo: "Apodo Binance", valor: (c) => c.nick },
+      { titulo: "Nombre", valor: (c) => c.nombre },
+      { titulo: "Cédula/RIF", valor: (c) => c.cedula },
+      { titulo: "Teléfonos", valor: (c) => c.telefonos },
+      { titulo: "Estado", valor: (c) => el("span", { class: c.confianza === "sospechosa" ? "estado-alerta" : "estado-ok",
+        text: c.confianza === "sospechosa" ? "Sospechosa" : "Verificada" }) },
+      { titulo: "", valor: (c) => el("button", { type: "button", class: "enlace-boton", text: "Borrar",
+        onclick: () => borrarContraparte(c.nick) }) },
+    ], lista, "Aún no has guardado contrapartes. Agrega una arriba con el apodo que te muestra Binance.");
+  }
+
+  async function borrarContraparte(nick) {
+    if (!window.confirm(`¿Borrar la contraparte "${nick}"?`)) return;
+    try {
+      await api(`/api/contrapartes/${encodeURIComponent(nick)}`, { method: "DELETE" });
+      cargar(false);
+    } catch (err) {
+      avisos([`No pude borrar la contraparte: ${err.message}`]);
+    }
   }
 
   function renderEventos(d) {

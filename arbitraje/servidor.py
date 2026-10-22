@@ -20,7 +20,9 @@ from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from . import __version__, anuncios as mod_anuncios, banco, ganancias, mercado, pagos as mod_pagos
+from . import (
+    __version__, anuncios as mod_anuncios, banco, ganancias, mercado, pagos as mod_pagos, sesion as mod_sesion,
+)
 from .config import Config
 from .db import BaseDatos
 from .tareas import Motor
@@ -68,7 +70,29 @@ class PrepararPago(BaseModel):
     banco: str | None = Field(default=None, max_length=60)
     concepto: str | None = Field(default=None, max_length=120)
     orden: str | None = Field(default=None, max_length=40)
+    contraparte: str | None = Field(default=None, max_length=80)
     texto: str | None = Field(default=None, max_length=2000)
+    confirmar: bool = False
+
+
+class IniciarSesion(BaseModel):
+    capital_inicial: float = Field(gt=0)
+    moneda_inicial: Literal["VES", "USDT"]
+    nota: str | None = Field(default=None, max_length=200)
+
+
+class CerrarSesion(BaseModel):
+    nota_cierre: str | None = Field(default=None, max_length=200)
+
+
+class Contraparte(BaseModel):
+    nick: str = Field(min_length=1, max_length=80)
+    nombre: str | None = Field(default=None, max_length=120)
+    cedula: str | None = Field(default=None, max_length=40)
+    telefonos: str | None = Field(default=None, max_length=200)
+    bancos: str | None = Field(default=None, max_length=200)
+    confianza: Literal["nueva", "verificada", "sospechosa"] = "verificada"
+    nota: str | None = Field(default=None, max_length=300)
 
 
 def credenciales_validas(cabecera: str, usuario: str, clave: str) -> bool:
@@ -145,6 +169,7 @@ def datos_panel(cfg: Config, db: BaseDatos, motor: Motor, periodo: str) -> dict:
             "sugerido_venta": compra - tick if compra else None,
         }
     anuncios = datos_anuncios(cfg, motor)
+    sesion_activa = datos_sesion(cfg, db, cotizacion, ordenes)
     inicio_mercado = desde if desde is not None else (db.primera_cotizacion_ms() or hasta - DIA_MS)
 
     ordenes_periodo = [o for o in ordenes if en_periodo(o["creada_ms"])]
@@ -152,6 +177,9 @@ def datos_panel(cfg: Config, db: BaseDatos, motor: Motor, periodo: str) -> dict:
     conciliacion = banco.reporte(movimientos, ordenes_periodo)
     conciliacion["pagos_sin_orden"] = conciliacion["pagos_sin_orden"][-50:]
     conciliacion["ordenes_sin_pago"] = conciliacion["ordenes_sin_pago"][-50:]
+    # verifica el titular de cada cobro listo para liberar contra el perfil de Binance
+    for item in conciliacion["por_liberar"]:
+        item["verificacion"] = motor.verificar_pago_recibido(item["pago"], item["orden"])
 
     return {
         "generado_ms": ahora,
@@ -182,6 +210,9 @@ def datos_panel(cfg: Config, db: BaseDatos, motor: Motor, periodo: str) -> dict:
             "serie": db.serie_mercado(inicio_mercado, hasta, cubeta_para(hasta - inicio_mercado)),
         },
         "anuncios": anuncios,
+        "sesion": sesion_activa,
+        "sesiones": db.sesiones(20),
+        "contrapartes": db.contrapartes(),
         "ordenes": list(reversed(ordenes_periodo))[:FILAS_TABLA],
         "ciclos": [asdict(c) for c in reversed(ciclos) if en_periodo(c.ts_cierre)][:FILAS_TABLA],
         "banco": {"movimientos": list(reversed(movimientos))[:FILAS_TABLA], "conciliacion": conciliacion},
@@ -213,6 +244,17 @@ def datos_anuncios(cfg: Config, motor: Motor) -> dict:
         "estado": estado,
         "plan": plan,
     }
+
+
+def datos_sesion(cfg: Config, db: BaseDatos, cotizacion: dict | None, ordenes: list[dict]) -> dict | None:
+    """Resumen de la sesión abierta (capital, rendimiento y qué hacer ahora), o None."""
+    abierta = db.sesion_abierta()
+    if not abierta:
+        return None
+    return mod_sesion.resumen(
+        abierta, ordenes, cfg.costos, cfg.banco.ruta_por_defecto, cotizacion, cfg.tz,
+        cfg.anuncios.margen_minimo_pct, cfg.costos.tick_bs,
+    )
 
 
 def _celda(valor):
@@ -335,11 +377,55 @@ def crear_app(cfg: Config, iniciar_tareas: bool = True) -> FastAPI:
     async def preparar_pago(datos: PrepararPago):
         resultado = await motor.preparar_pago(
             datos.monto_bs, telefono=datos.telefono, cedula=datos.cedula, banco=datos.banco,
-            concepto=datos.concepto, orden=datos.orden, texto=datos.texto,
+            concepto=datos.concepto, orden=datos.orden, contraparte=datos.contraparte,
+            texto=datos.texto, confirmar=datos.confirmar,
         )
-        if not resultado["ok"]:
+        # falta de datos -> 422; diferencia de identidad -> 200 con el veredicto para que el panel avise
+        if not resultado["ok"] and not resultado.get("requiere_confirmacion"):
             raise HTTPException(422, resultado["error"])
         return resultado
+
+    @app.post("/api/sesion/iniciar", status_code=201)
+    def iniciar_sesion(datos: IniciarSesion):
+        cotizacion = db.ultima_cotizacion()
+        precio = mod_sesion.precio_referencia(cotizacion, datos.moneda_inicial)
+        try:
+            sesion = db.abrir_sesion({
+                "capital_inicial": datos.capital_inicial, "moneda_inicial": datos.moneda_inicial,
+                "precio_inicial": precio, "nota": datos.nota,
+            })
+        except ValueError as e:
+            raise HTTPException(409, str(e))
+        db.registrar_evento("info", f"Sesión iniciada con {datos.capital_inicial:g} {datos.moneda_inicial}.")
+        return sesion
+
+    @app.post("/api/sesion/cerrar")
+    def cerrar_sesion(datos: CerrarSesion):
+        abierta = db.sesion_abierta()
+        if not abierta:
+            raise HTTPException(404, "No hay ninguna sesión abierta.")
+        resumen = datos_sesion(cfg, db, db.ultima_cotizacion(), db.ordenes())
+        capital_final = mod_sesion.valor_cierre(resumen)
+        sesion = db.cerrar_sesion(abierta["id"], capital_final, datos.nota_cierre)
+        ganancia = resumen.get("ganancia_usdt")
+        db.registrar_evento("info", f"Sesión cerrada. Rendimiento: {resumen.get('rendimiento_total_pct') or 0:.2f}% "
+                            f"({(ganancia or 0):+.2f} USDT).")
+        return {"ok": True, "sesion": sesion, "resumen": resumen}
+
+    @app.get("/api/contrapartes")
+    def listar_contrapartes():
+        return db.contrapartes()
+
+    @app.put("/api/contrapartes")
+    def guardar_contraparte(datos: Contraparte):
+        db.guardar_contraparte(datos.model_dump())
+        return db.contraparte(datos.nick)
+
+    @app.delete("/api/contrapartes/{nick}")
+    def borrar_contraparte(nick: str):
+        if not db.borrar_contraparte(nick):
+            raise HTTPException(404, "Contraparte no encontrada")
+        return {"ok": True}
 
     @app.post("/api/banco/sms")
     async def webhook_sms(request: Request):
