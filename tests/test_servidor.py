@@ -133,6 +133,23 @@ def test_preparar_pago_verifica_tercero(cliente):
     assert r3["veredicto"]["nivel"] == "coincide"
 
 
+def test_pausar_reanudar_operativa(cliente):
+    assert cliente.get("/api/panel?periodo=hoy").json()["estado"]["operativa"]["pausada"] is False
+    assert cliente.post("/api/operativa", json={"pausar": True}).json()["pausada"] is True
+    # el estado queda pausado y es visible en el panel (lo verían teléfono y PC por igual)
+    assert cliente.get("/api/panel?periodo=hoy").json()["estado"]["operativa"]["pausada"] is True
+    assert cliente.post("/api/operativa", json={"pausar": False}).json()["pausada"] is False
+    assert cliente.get("/api/panel?periodo=hoy").json()["estado"]["operativa"]["pausada"] is False
+
+
+def test_reposicionar_respeta_pausa(cliente):
+    cliente.post("/api/operativa", json={"pausar": True})
+    r = cliente.post("/api/anuncios/reposicionar").json()
+    assert r.get("pausada") is True
+    assert r["acciones"] == []
+    cliente.post("/api/operativa", json={"pausar": False})
+
+
 def test_reposicionar_simulacion(cliente):
     r = cliente.post("/api/anuncios/reposicionar").json()
     assert r["ok"] is True

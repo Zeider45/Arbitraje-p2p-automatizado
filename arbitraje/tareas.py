@@ -51,6 +51,7 @@ class Motor:
             "anuncios": {"ok": None, "ts_ms": None, "ok_ms": None, "error": None, "modo": cfg.anuncios.modo,
                          "automatico": cfg.anuncios.automatico, "margen_pct": None, "competitivo": False,
                          "lados": {}, "acciones": [], "advertencia": None},
+            "operativa": {"pausada": db.leer_estado("operativa_pausada") == "1"},
         }
         self.anuncios_propios: set[str] = set()  # advNo de tus anuncios, para no competir contra ti
         self.ultima_cotizacion: mercado.Cotizacion | None = None
@@ -154,11 +155,48 @@ class Motor:
         self.db.registrar_evento("oportunidad", f"{titulo}: {cuerpo}")
         await self.telegram.enviar(titulo, cuerpo)
 
+    # ---- pausar / reanudar la operatividad -----------------------------------------
+
+    def operativa_pausada(self) -> bool:
+        return self.db.leer_estado("operativa_pausada") == "1"
+
+    async def pausar_operativa(self) -> dict:
+        """Deja la operatividad en pausa y baja tus anuncios (fuera de línea)."""
+        self.db.escribir_estado("operativa_pausada", 1)
+        self.estado["operativa"]["pausada"] = True
+        bajados = 0
+        if self.agente and self.cfg.anuncios.en_real:
+            try:
+                vivos = [a.numero for a in await self.agente.listar() if a.estado == mod_anuncios.EN_LINEA]
+                if vivos:
+                    await self.agente.cambiar_estado(vivos, mod_anuncios.FUERA_LINEA)
+                    bajados = len(vivos)
+            except (httpx.HTTPError, binance_api.ErrorBinance) as e:
+                self.db.registrar_evento("error", f"No pude bajar los anuncios al pausar: {_describir(e)}")
+        self.estado["anuncios"].update(acciones=[], advertencia="Operatividad en pausa: anuncios fuera de línea.")
+        self.db.registrar_evento("info", f"Operatividad en PAUSA. Anuncios fuera de línea ({bajados}).")
+        await self.telegram.enviar("Operatividad en pausa", "Tus anuncios quedan fuera de línea. Reanúdala desde el panel.")
+        return {"ok": True, "pausada": True, "anuncios_bajados": bajados}
+
+    async def reanudar_operativa(self) -> dict:
+        """Reanuda la operatividad y vuelve a publicar tus anuncios."""
+        self.db.escribir_estado("operativa_pausada", 0)
+        self.estado["operativa"]["pausada"] = False
+        self.estado["anuncios"]["advertencia"] = None
+        self.db.registrar_evento("info", "Operatividad REANUDADA.")
+        await self.telegram.enviar("Operatividad reanudada", "Vuelvo a mover tus anuncios.")
+        reposicion = await self.reposicionar() if self.cfg.anuncios.automatico else None
+        return {"ok": True, "pausada": False, "reposicion": reposicion}
+
     # ---- repositor de anuncios -----------------------------------------------------
 
     async def reposicionar(self, cotizacion: mercado.Cotizacion | None = None) -> dict:
         """Calcula y (en modo real) aplica los precios de tus anuncios de compra y venta."""
         cfg = self.cfg.anuncios
+        if self.operativa_pausada():
+            self.estado["anuncios"].update(ts_ms=ahora_ms(), acciones=[],
+                                           advertencia="Operatividad en pausa: anuncios fuera de línea.")
+            return {"ok": True, "pausada": True, "acciones": []}
         cotizacion = cotizacion or self.ultima_cotizacion
         if cotizacion is None and self.simulador is not None:
             cotizacion = self.simulador.cotizar()

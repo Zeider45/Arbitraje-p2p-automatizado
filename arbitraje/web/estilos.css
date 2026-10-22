@@ -130,6 +130,14 @@ body.cargando main { opacity: 0.6; }
   margin: 8px 0 4px; padding: 10px 14px; border-radius: 10px; font-size: 13px;
   background: var(--superficie); border: 1px solid var(--borde); border-left: 4px solid var(--aviso);
 }
+.banner-pausa {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+  margin: 8px 0 4px; padding: 10px 14px; border-radius: 10px; font-size: 13.5px;
+  background: var(--lavado); border: 1px solid var(--borde); border-left: 4px solid var(--aviso);
+}
+/* botón de operatividad: muestra el color del estado ACTUAL (ámbar = activa, se puede pausar) */
+.boton-operativa { background: var(--aviso); color: #0b0b0b; }
+.boton-operativa[data-pausada="true"] { background: var(--bien); color: #fff; }
 .aviso p + p { margin-top: 4px; }
 
 /* ---- controles ---- */

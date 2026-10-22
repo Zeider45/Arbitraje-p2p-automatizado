@@ -159,6 +159,46 @@ ruta = "BDV"               # con qué ruta bancaria calcula el margen
 
 ---
 
+## Uso diario (paso a paso)
+
+1. **Abre el panel** y pulsa **Iniciar operación**: pon tu capital y si empiezas en
+   bolívares o en USDT.
+2. Mira **"Qué hacer ahora"** en la tarjeta de sesión: te dice si comprar, vender o
+   esperar, con el precio objetivo.
+3. Deja el **repositor de anuncios** encendido (o pulsa *Calcular ahora*) para liderar
+   el mercado con tu margen mínimo.
+4. Cuando **compras**: en *Preparar pago* eliges la orden, el bloque llega a tu
+   **Telegram**, lo pegas en **"Pegar Datos"** de la BDVApp y pagas con tu clave. Si el
+   beneficiario no coincide con la contraparte, el sistema te frena.
+5. Cuando **vendes**: el pago entra por SMS, se concilia y se verifica el titular; la
+   orden aparece en **"listas para liberar"** y **tú liberas** en Binance.
+6. Al terminar, pulsa **Cerrar sesión**: deja tu saldo en **USDT** (el panel te avisa si
+   te queda algo en bolívares) y guarda el rendimiento del día.
+
+Para **detener todo** en cualquier momento (vas a comer, te vas a dormir, el mercado se
+puso feo): el botón **⏸ Pausar operatividad** baja tus anuncios y deja de mover precios.
+**▶ Reanudar operatividad** los vuelve a publicar. El estado es el mismo en todos tus
+dispositivos.
+
+## Desde tu teléfono y tu PC
+
+El panel es **un solo servidor** con una sola base de datos: el teléfono y la PC solo son
+navegadores que se conectan a él. Lo que haces en uno (pausar, iniciar sesión, preparar un
+pago) aparece al instante en el otro. Córrelo en un equipo que esté siempre encendido (tu
+PC o un VPS barato) y conéctate desde donde quieras:
+
+- **Misma red WiFi (lo más fácil):** en `config.toml` pon `host = "0.0.0.0"` y una
+  `clave` en `[panel]`. Desde el teléfono entra a `http://IP-DE-TU-PC:8000` (la IP local,
+  p. ej. `192.168.1.50`).
+- **Desde la calle (recomendado):** usa un túnel seguro como **Tailscale** (crea una red
+  privada entre tus equipos) o **Cloudflare Tunnel** / **ngrok** (te da una URL https).
+  Así entras por internet sin abrir puertos en tu router.
+- **Siempre con clave.** Si el panel sale de `127.0.0.1`, define `panel.clave` (o la
+  variable `PANEL_CLAVE`); el programa se niega a exponerse sin clave. Idealmente detrás
+  de https (el túnel ya te lo da).
+- Para recibir los **avisos y el bloque de pago en el teléfono**, configura Telegram en
+  `[alertas]`: te llegan a la app donde sea que estés, sin depender del panel abierto.
+
 ## Sesiones de operación (empezar y cerrar la jornada)
 
 En el panel, la tarjeta **"Sesión de operación"** te deja decirle al sistema con cuánto
@@ -194,6 +234,8 @@ empiezas y en qué moneda (**bolívares o USDT**). A partir de ahí:
   apodo de Binance con el que operas. El panel la usa para verificar que el banco
   coincida antes de pagar y antes de liberar.
 - **Formularios**: registrar una orden a mano y pegar un SMS del banco.
+- **Pausar / reanudar operatividad**: un botón que baja todos tus anuncios (fuera de
+  línea) y los vuelve a publicar. El estado se comparte entre el teléfono y la PC.
 - **Tema claro/oscuro** y diseño adaptado a teléfono.
 
 ### Seguridad del panel

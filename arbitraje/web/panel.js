@@ -120,6 +120,7 @@
   function render(d) {
     zona = d.config.zona_horaria || zona;
     renderCabecera(d);
+    renderOperativa(d);
     renderKpis(d);
     renderSesion(d);
     renderMercado(d);
@@ -170,6 +171,33 @@
     $("#exp-ordenes").href = `/api/exportar/ordenes.csv?periodo=${periodo}`;
     $("#exp-ciclos").href = `/api/exportar/ciclos.csv?periodo=${periodo}`;
     avisos([em.error, em.aviso, es.error].filter(Boolean));
+  }
+
+  // ---- pausar / reanudar operatividad ----------------------------------------
+
+  function operativaPausada(d) {
+    return !!(d.estado && d.estado.operativa && d.estado.operativa.pausada);
+  }
+
+  function renderOperativa(d) {
+    const pausada = operativaPausada(d);
+    const btn = $("#btn-operativa");
+    btn.dataset.pausada = String(pausada);
+    btn.textContent = pausada ? "▶ Reanudar operatividad" : "⏸ Pausar operatividad";
+    $("#banner-pausa").hidden = !pausada;
+  }
+
+  async function cambiarOperativa(pausar) {
+    const btn = $("#btn-operativa");
+    btn.disabled = true;
+    try {
+      await api("/api/operativa", { method: "POST", body: JSON.stringify({ pausar }) });
+      await cargar(false);
+    } catch (err) {
+      avisos([`No pude ${pausar ? "pausar" : "reanudar"} la operatividad: ${err.message}`]);
+    } finally {
+      btn.disabled = false;
+    }
   }
 
   // ---- indicadores -----------------------------------------------------------
@@ -422,12 +450,16 @@
       ? `Repositor activo en ${modo}, cada ${Math.round(cfg.intervalo_seg)} s · margen mínimo ${num(cfg.margen_minimo_pct, 1)} % · pago ${rutaTexto(cfg.ruta)}.`
       : "Repositor apagado. Actívalo con anuncios.automatico = true en config.toml, o pulsa “Calcular ahora” para ver qué haría.");
     const chip = $("#an-estado");
-    if (!cfg.automatico) chip.dataset.estado = "apagado";
-    else if (estado.error) chip.dataset.estado = "error";
-    else chip.dataset.estado = cfg.modo === "real" ? "ok" : "aviso";
-    chip.querySelector(".texto").textContent = !cfg.automatico ? "Apagado"
-      : estado.error ? "Error" : cfg.modo === "real" ? `Real · ${hace(estado.ok_ms)}` : `Simulación · ${hace(estado.ok_ms)}`;
-    chip.title = estado.error || "";
+    const pausada = operativaPausada(d);
+    if (pausada) { chip.dataset.estado = "apagado"; chip.querySelector(".texto").textContent = "En pausa"; chip.title = "Operatividad en pausa"; }
+    else {
+      if (!cfg.automatico) chip.dataset.estado = "apagado";
+      else if (estado.error) chip.dataset.estado = "error";
+      else chip.dataset.estado = cfg.modo === "real" ? "ok" : "aviso";
+      chip.querySelector(".texto").textContent = !cfg.automatico ? "Apagado"
+        : estado.error ? "Error" : cfg.modo === "real" ? `Real · ${hace(estado.ok_ms)}` : `Simulación · ${hace(estado.ok_ms)}`;
+      chip.title = estado.error || "";
+    }
 
     ladoAnuncio("an-compra", plan && plan.lados ? plan.lados.compra : null);
     ladoAnuncio("an-venta", plan && plan.lados ? plan.lados.venta : null);
@@ -910,6 +942,9 @@
         boton.textContent = "Sincronizar con Binance";
       }
     });
+
+    $("#btn-operativa").addEventListener("click", () => cambiarOperativa($("#btn-operativa").dataset.pausada !== "true"));
+    $("#banner-reanudar").addEventListener("click", () => cambiarOperativa(false));
 
     $("#an-reposicionar").addEventListener("click", async (e) => {
       const boton = e.currentTarget;

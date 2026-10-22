@@ -75,6 +75,10 @@ class PrepararPago(BaseModel):
     confirmar: bool = False
 
 
+class Operativa(BaseModel):
+    pausar: bool
+
+
 class IniciarSesion(BaseModel):
     capital_inicial: float = Field(gt=0)
     moneda_inicial: Literal["VES", "USDT"]
@@ -357,6 +361,10 @@ def crear_app(cfg: Config, iniciar_tareas: bool = True) -> FastAPI:
     async def actualizar_mercado():
         cotizacion = await motor.actualizar_mercado()
         return {"ok": cotizacion is not None, "error": motor.estado["mercado"]["error"]}
+
+    @app.post("/api/operativa")
+    async def cambiar_operativa(datos: Operativa):
+        return await (motor.pausar_operativa() if datos.pausar else motor.reanudar_operativa())
 
     @app.post("/api/anuncios/reposicionar")
     async def reposicionar_anuncios():

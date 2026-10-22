@@ -26,6 +26,10 @@
 </header>
 
 <main id="contenido">
+  <div class="banner-pausa" id="banner-pausa" role="status" hidden>
+    <span>⏸ <strong>Operatividad en pausa.</strong> Tus anuncios están fuera de línea; no se mueven precios.</span>
+    <button type="button" class="boton" id="banner-reanudar">Reanudar</button>
+  </div>
   <div class="aviso" id="aviso-global" role="alert" hidden></div>
 
   <nav class="filtros" aria-label="Período y acciones">
@@ -37,6 +41,7 @@
       <button type="button" role="radio" data-periodo="todo">Todo</button>
     </div>
     <div class="acciones">
+      <button type="button" class="boton boton-operativa" id="btn-operativa">⏸ Pausar operatividad</button>
       <button type="button" class="boton" id="btn-sync">Sincronizar con Binance</button>
       <a class="boton secundario" id="exp-ordenes" href="/api/exportar/ordenes.csv">Exportar órdenes</a>
       <a class="boton secundario" id="exp-ciclos" href="/api/exportar/ciclos.csv">Exportar ciclos</a>
