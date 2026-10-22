@@ -63,7 +63,7 @@ CREATE INDEX IF NOT EXISTS idx_movimientos_ts ON movimientos_banco (ts_ms);
 CREATE TABLE IF NOT EXISTS eventos (
     id       INTEGER PRIMARY KEY AUTOINCREMENT,
     ts_ms    INTEGER NOT NULL,
-    nivel    TEXT NOT NULL,          -- info | oportunidad | pago | error
+    nivel    TEXT NOT NULL,          -- info | oportunidad | pago | decision | error
     mensaje  TEXT NOT NULL
 );
 
@@ -406,9 +406,13 @@ class BaseDatos:
                 (ts_ms if ts_ms is not None else ahora_ms(), nivel, mensaje),
             )
 
-    def eventos(self, limite: int = 50) -> list[dict]:
+    def eventos(self, limite: int = 50, nivel: str | None = None) -> list[dict]:
+        sql, params = "SELECT * FROM eventos", []
+        if nivel:
+            sql += " WHERE nivel = ?"
+            params.append(nivel)
         with self.conexion() as c:
-            filas = c.execute("SELECT * FROM eventos ORDER BY ts_ms DESC, id DESC LIMIT ?", (limite,))
+            filas = c.execute(sql + " ORDER BY ts_ms DESC, id DESC LIMIT ?", (*params, limite))
             return [dict(r) for r in filas]
 
     def leer_estado(self, clave: str, defecto: str | None = None) -> str | None:

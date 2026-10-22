@@ -390,3 +390,11 @@ textarea { resize: vertical; }
   .barra-pos, .barra-neg, .punto { fill: CanvasText; }
   .linea { stroke: CanvasText; }
 }
+
+.casilla { display: flex; align-items: center; gap: 8px; margin-top: 10px; font-size: 13px; }
+.casilla input { width: auto; }
+
+.lista-decisiones { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; max-height: 320px; overflow-y: auto; }
+.lista-decisiones li { display: grid; grid-template-columns: 96px 1fr; gap: 10px; padding: 8px 10px; border-radius: 8px; background: var(--lavado); font-size: 13px; }
+.lista-decisiones time { color: var(--tinta-2); font-size: 12px; }
+@media (max-width: 560px) { .lista-decisiones li { grid-template-columns: 1fr; gap: 2px; } }

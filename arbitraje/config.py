@@ -96,6 +96,8 @@ class Alertas:
     resumen_diario_hora: str = "21:00"
     telegram_token: str = ""
     telegram_chat_id: str = ""
+    whatsapp_telefono: str = ""      # tu número con código de país, sin "+": 584141234567
+    whatsapp_apikey: str = ""        # la que te manda CallMeBot
 
 
 @dataclass
@@ -104,6 +106,8 @@ class Pagos:
     banco_por_defecto: str = "0102"    # 0102 = Banco de Venezuela
     plantilla: str = ""                # vacío = plantilla por defecto (ver pagos.py)
     concepto_por_defecto: str = "Pago USDT orden {orden}"
+    automatico: bool = True            # prepara y envía solo el bloque de pago de cada compra nueva
+    ventana_orden_min: float = 120.0   # solo órdenes creadas en los últimos N min (evita avisar de las viejas)
 
 
 @dataclass
@@ -157,6 +161,8 @@ VARIABLES_ENTORNO = {
     "BINANCE_API_SECRET": ("binance", "api_secret"),
     "TELEGRAM_TOKEN": ("alertas", "telegram_token"),
     "TELEGRAM_CHAT_ID": ("alertas", "telegram_chat_id"),
+    "WHATSAPP_TELEFONO": ("alertas", "whatsapp_telefono"),
+    "WHATSAPP_APIKEY": ("alertas", "whatsapp_apikey"),
     "WEBHOOK_TOKEN": ("banco", "webhook_token"),
     "PANEL_HOST": ("panel", "host"),
     "PANEL_PUERTO": ("panel", "puerto"),
@@ -245,6 +251,7 @@ def validar(cfg: Config) -> None:
     cfg.anuncios.desfase_tick = max(cfg.anuncios.desfase_tick, 0)
     if cfg.alertas.resumen_diario_hora and not re.fullmatch(r"\d{1,2}:\d{2}", cfg.alertas.resumen_diario_hora):
         raise ValueError('alertas.resumen_diario_hora debe tener el formato "HH:MM" (o "" para desactivarlo)')
+    cfg.alertas.whatsapp_telefono = re.sub(r"\D", "", cfg.alertas.whatsapp_telefono)
     cfg.binance.dias_historial = min(max(cfg.binance.dias_historial, 1), 180)
     # no saturar a Binance: mínimo 15 s entre consultas de mercado y 1 min entre sincronizaciones
     cfg.mercado.intervalo_seg = max(cfg.mercado.intervalo_seg, 15.0)

@@ -10,7 +10,7 @@
     PENDING: "Pendiente", TRADING: "En curso", BUYER_PAYED: "Pagada, por liberar",
     DISTRIBUTING: "Liberando", IN_APPEAL: "En apelación",
   };
-  const NIVELES = { info: "Info", oportunidad: "Oportunidad", pago: "Pago", error: "Error" };
+  const NIVELES = { info: "Info", oportunidad: "Oportunidad", pago: "Pago", decision: "Decisión", error: "Error" };
   const VEREDICTO = {
     coincide: { clase: "estado-ok", texto: "Titular coincide" },
     difiere: { clase: "estado-alerta", texto: "⚠️ Posible tercero" },
@@ -123,6 +123,7 @@
     renderOperativa(d);
     renderKpis(d);
     renderSesion(d);
+    renderDecisiones(d);
     renderMercado(d);
     renderOperacion(d);
     renderAnuncios(d);
@@ -828,6 +829,16 @@
     }
   }
 
+  function renderDecisiones(d) {
+    const lista = $("#decisiones-lista");
+    lista.textContent = "";
+    for (const e of d.decisiones || []) {
+      lista.append(el("li", {}, el("time", { text: fechaHora(e.ts_ms) }), el("span", { text: e.mensaje })));
+    }
+    $("#decisiones-vacio").hidden = !!(d.decisiones || []).length;
+    poner("decisiones-estado", d.config.pagos_automaticos ? "Pagos automáticos: activados" : "Pagos automáticos: apagados");
+  }
+
   function renderEventos(d) {
     G.tabla($("#p-eventos"), [
       { titulo: "Fecha", valor: (e) => fechaHora(e.ts_ms) },
@@ -1009,8 +1020,56 @@
     }).observe($(".graficos"));
   }
 
+  function iniciarSimulador() {
+    const f = $("#f-sim");
+    const salida = $("#sim-salida");
+    f.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const opcional = (v) => (v === "" ? null : Number(v));
+      poner("sim-resultado", "");
+      try {
+        const r = await api("/api/simulador", { method: "POST", body: JSON.stringify({
+          capital: Number(f.capital.value), moneda: f.moneda.value, ciclos: Number(f.ciclos.value),
+          ciclos_por_dia: Number(f.ciclos_por_dia.value || 1), rol: f.rol.value, ruta: f.ruta.value,
+          reinvertir: f.reinvertir.checked, precio_compra: opcional(f.precio_compra.value),
+          precio_venta: opcional(f.precio_venta.value) }) });
+        const u = r.moneda === "USDT" ? "USDT" : "Bs";
+        const dec = r.moneda === "USDT" ? 2 : 0;
+        const dato = (t, v) => el("div", {}, el("dt", { text: t }), el("dd", { text: v }));
+        const resumen = $("#sim-resumen");
+        resumen.textContent = "";
+        resumen.append(
+          dato("Capital inicial", `${num(r.capital_inicial, dec)} ${u}`),
+          dato("Capital final", `${num(r.capital_final, dec)} ${u}`),
+          dato("Ganancia total", `${conSigno(r.ganancia, dec)} ${u}` + (r.moneda === "VES" ? ` (≈ ${conSigno(r.ganancia_usdt, 2)} USDT)` : "")),
+          dato("Rendimiento", `${conSigno(r.rendimiento_pct, 2)} %`),
+          dato("Ganancia por ciclo", `${conSigno(r.ganancia_por_ciclo_pct, 3)} %`),
+          dato("Duración", `${r.ciclos} ciclos en ${r.dias} ${r.dias === 1 ? "día" : "días"}`),
+          dato("Precios usados", `compras a ${num(r.precio_compra)} · vendes a ${num(r.precio_venta)}${r.precios_de_mercado ? " (mercado)" : ""}`),
+          dato("Ruta y rol", `${rutaTexto(r.ruta)} · ${r.rol}`));
+        const av = $("#sim-avisos");
+        av.hidden = !r.avisos.length;
+        av.textContent = r.avisos.join(" ");
+        G.tabla($("#sim-tabla"), [
+          { titulo: "Ciclo", num: true, valor: (c) => num(c.n, 0) },
+          { titulo: "Día", num: true, valor: (c) => num(c.dia, 0) },
+          { titulo: `Capital inicio (${u})`, num: true, valor: (c) => num(c.capital_inicio, dec) },
+          { titulo: `Ganancia (${u})`, num: true, valor: (c) => conSigno(c.ganancia, dec === 0 ? 0 : 3) },
+          { titulo: "%", num: true, valor: (c) => conSigno(c.ganancia_pct, 3) },
+          { titulo: `Acumulada (${u})`, num: true, valor: (c) => conSigno(c.acumulada, dec) },
+          { titulo: `Capital fin (${u})`, num: true, valor: (c) => num(c.capital_fin, dec) },
+        ], r.filas, "Sin ciclos.");
+        salida.hidden = false;
+      } catch (err) {
+        salida.hidden = true;
+        poner("sim-resultado", `No pude simular: ${err.message}`);
+      }
+    });
+  }
+
   iniciarControles();
   iniciarFormularioOrden();
+  iniciarSimulador();
   iniciarFormularioBanco();
   iniciarFormularioPago();
   cargar(true);

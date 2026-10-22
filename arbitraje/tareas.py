@@ -12,7 +12,7 @@ from . import anuncios as mod_anuncios
 from . import banco, binance_api, ganancias, identidad as mod_identidad, mercado, pagos as mod_pagos
 from .config import Config
 from .db import BaseDatos
-from .notificaciones import Telegram
+from .notificaciones import Avisos, Telegram, WhatsApp
 from .utilidades import DIA_MS, MINUTO_MS, ahora_ms, formato_numero, rango_periodo
 
 log = logging.getLogger(__name__)
@@ -30,6 +30,8 @@ class Motor:
         self.db = db
         self.http = http or httpx.AsyncClient(timeout=20)
         self.telegram = Telegram(cfg.alertas.telegram_token, cfg.alertas.telegram_chat_id, self.http)
+        self.whatsapp = WhatsApp(cfg.alertas.whatsapp_telefono, cfg.alertas.whatsapp_apikey, self.http)
+        self.avisos = Avisos(self.telegram, self.whatsapp)
         self.binance = (
             binance_api.ClienteBinance(cfg.binance.api_key, cfg.binance.api_secret, cfg.binance.url_api, self.http)
             if cfg.binance.tiene_claves
@@ -69,12 +71,11 @@ class Motor:
             self.db.podar_mercado(ahora_ms() - 180 * DIA_MS)
         self._tareas.append(asyncio.create_task(self._repetir(self.cfg.mercado.intervalo_seg, self.actualizar_mercado)))
         if self.binance:
-            self._tareas.append(
-                asyncio.create_task(self._repetir(self.cfg.binance.intervalo_sync_min * 60, self.sincronizar))
-            )
+            minutos = 1.0 if self.cfg.pagos.automatico else self.cfg.binance.intervalo_sync_min
+            self._tareas.append(asyncio.create_task(self._repetir(minutos * 60, self.sincronizar)))
         if self.cfg.anuncios.automatico:
             self._tareas.append(asyncio.create_task(self._repetir(self.cfg.anuncios.intervalo_seg, self.reposicionar)))
-        if self.telegram.activo and self.cfg.alertas.resumen_diario_hora:
+        if self.avisos.activo and self.cfg.alertas.resumen_diario_hora:
             self._tareas.append(asyncio.create_task(self._bucle_resumen_diario()))
 
     async def detener(self) -> None:
@@ -153,7 +154,7 @@ class Motor:
             return
         self._ultima_alerta[clave] = ahora
         self.db.registrar_evento("oportunidad", f"{titulo}: {cuerpo}")
-        await self.telegram.enviar(titulo, cuerpo)
+        await self.avisos.enviar(titulo, cuerpo)
 
     # ---- pausar / reanudar la operatividad -----------------------------------------
 
@@ -175,7 +176,7 @@ class Motor:
                 self.db.registrar_evento("error", f"No pude bajar los anuncios al pausar: {_describir(e)}")
         self.estado["anuncios"].update(acciones=[], advertencia="Operatividad en pausa: anuncios fuera de línea.")
         self.db.registrar_evento("info", f"Operatividad en PAUSA. Anuncios fuera de línea ({bajados}).")
-        await self.telegram.enviar("Operatividad en pausa", "Tus anuncios quedan fuera de línea. Reanúdala desde el panel.")
+        await self.avisos.enviar("Operatividad en pausa", "Tus anuncios quedan fuera de línea. Reanúdala desde el panel.")
         return {"ok": True, "pausada": True, "anuncios_bajados": bajados}
 
     async def reanudar_operativa(self) -> dict:
@@ -184,7 +185,7 @@ class Motor:
         self.estado["operativa"]["pausada"] = False
         self.estado["anuncios"]["advertencia"] = None
         self.db.registrar_evento("info", "Operatividad REANUDADA.")
-        await self.telegram.enviar("Operatividad reanudada", "Vuelvo a mover tus anuncios.")
+        await self.avisos.enviar("Operatividad reanudada", "Vuelvo a mover tus anuncios.")
         reposicion = await self.reposicionar() if self.cfg.anuncios.automatico else None
         return {"ok": True, "pausada": False, "reposicion": reposicion}
 
@@ -245,7 +246,7 @@ class Motor:
                 acciones.append({"lado": lado, "accion": "pausar", "precio": None, "texto": f"{lado.lower()}: {pl.motivo}"})
         self.estado["anuncios"]["error"] = None
         if acciones and not self.cfg.anuncios.en_real:
-            self.db.registrar_evento("info", "Simulación de anuncios: " + " · ".join(a["texto"] for a in acciones))
+            self.db.registrar_evento("decision", "Simulación de anuncios: " + " · ".join(a["texto"] for a in acciones))
         return acciones
 
     async def _aplicar_plan(self, plan: mod_anuncios.Plan) -> list[dict]:
@@ -286,7 +287,7 @@ class Motor:
                 self._fallo("anuncios", f"No pude actualizar tu anuncio de {lado.lower()}: {_describir(e)}")
         if acciones:
             self.estado["anuncios"]["error"] = None
-            self.db.registrar_evento("oportunidad", "Anuncios: " + " · ".join(a["texto"] for a in acciones))
+            self.db.registrar_evento("decision", "Anuncios: " + " · ".join(a["texto"] for a in acciones))
         return acciones
 
     async def _actualizar_propios(self) -> None:
@@ -314,7 +315,71 @@ class Motor:
         if nuevas:
             self.db.registrar_evento("info", f"Sincronización: {nuevas} órdenes nuevas, {actualizadas} actualizadas.")
         self.conciliar()
+        if self.cfg.pagos.automatico:
+            await self.revisar_pagos_pendientes()
         return {"ok": True, "nuevas": nuevas, "actualizadas": actualizadas}
+
+    # ---- pagos automáticos ---------------------------------------------------------
+
+    def decidir(self, texto: str) -> None:
+        """Deja constancia de una decisión automática (se ve en el panel, tarjeta "Decisiones")."""
+        self.db.registrar_evento("decision", texto)
+
+    async def revisar_pagos_pendientes(self) -> list[str]:
+        """Por cada compra nueva por pagar, arma el bloque de "Pegar Datos" y lo manda a tus avisos.
+
+        Usa el perfil guardado de la contraparte (teléfono, cédula, banco). Si no hay datos, o la
+        contraparte es sospechosa, no inventa nada: te avisa y explica por qué. Nunca paga.
+        """
+        desde = ahora_ms() - int(self.cfg.pagos.ventana_orden_min * MINUTO_MS)
+        hechas = []
+        for o in self.db.ordenes(desde_ms=desde):
+            if o["tipo"] != "COMPRA" or o["estado"] not in ("PENDING", "TRADING"):
+                continue
+            clave = f"pago_auto:{o['numero']}"
+            if self.db.leer_estado(clave):
+                continue
+            self.db.escribir_estado(clave, ahora_ms())
+            hechas.append(await self._decidir_pago(o))
+        return hechas
+
+    async def _decidir_pago(self, o: dict) -> str:
+        nick, bs = o.get("contraparte"), o["total_bs"]
+        etiqueta = f"orden {o['numero']} ({formato_numero(o['cantidad'])} USDT, Bs {formato_numero(bs)}, {nick or 'sin apodo'})"
+        fila = self.db.contraparte(nick) if nick else None
+        if self.operativa_pausada():
+            texto = f"Compra nueva {etiqueta} con la operatividad en pausa: no preparé el pago. Revísala tú."
+            self.decidir(texto)
+            await self.avisos.enviar("Compra por pagar (en pausa)", texto)
+            return texto
+        if fila and fila["confianza"] == "sospechosa":
+            texto = f"BLOQUEÉ el pago de la {etiqueta}: marcaste a esta contraparte como SOSPECHOSA. No pagues sin revisar."
+            self.decidir(texto)
+            await self.avisos.enviar("⚠️ Pago bloqueado", texto)
+            return texto
+        tels = [t.strip() for t in ((fila or {}).get("telefonos") or "").split(",") if t.strip()]
+        cedula = (fila or {}).get("cedula")
+        if not tels and not cedula:
+            texto = (f"Compra nueva {etiqueta}: no tengo teléfono ni cédula de {nick or 'la contraparte'}, "
+                     "así que no pude armar el bloque. Pégale sus datos en “Preparar pago” del panel "
+                     "(o guárdalos en Contrapartes y la próxima vez va solo).")
+            self.decidir(texto)
+            await self.avisos.enviar("Compra por pagar: faltan datos", texto)
+            return texto
+        banco_codigo = ((fila or {}).get("bancos") or "").split(",")[0].strip() or None
+        r = await self.preparar_pago(
+            bs, telefono=tels[0] if tels else None, cedula=cedula, banco=banco_codigo,
+            orden=o["numero"], contraparte=nick,
+        )
+        if r["ok"]:
+            texto = (f"Armé y envié el bloque de pago de la {etiqueta} a "
+                     f"{r['datos'].get('telefono') or r['datos'].get('cedula')}. Verificación: {r['veredicto']['resumen']} "
+                     "Falta que lo pegues en tu BDVApp y confirmes con tu clave.")
+        else:
+            texto = f"No pude armar el pago de la {etiqueta}: {r.get('error')}"
+            await self.avisos.enviar("Compra por pagar: revisa", texto)
+        self.decidir(texto)
+        return texto
 
     # ---- banco ---------------------------------------------------------------------
 
@@ -374,6 +439,11 @@ class Motor:
                                               telefono=mod_pagos.normalizar_telefono(aviso.contraparte))
                 v = mod_identidad.verificar(self.perfil_contraparte(orden.get("contraparte")), obs)
                 lineas.append(("✅ " if v.coincide else "⚠️ " if v.difiere else "❔ ") + v.resumen)
+                self.decidir(
+                    f"Pago de Bs {formato_numero(aviso.monto_bs)} casado con la orden {orden['numero']}: "
+                    + ("NO liberes, posible tercero. " if v.difiere else "listo para liberar tras confirmar en tu BDVApp. ")
+                    + v.resumen
+                )
                 if v.difiere:
                     titulo = "⚠️ Pago recibido — POSIBLE TERCERO"
             else:
@@ -385,7 +455,7 @@ class Motor:
                 lineas.append(f"Corresponde a tu orden de compra {orden['numero']} ({formato_numero(orden['cantidad'])} USDT).")
         cuerpo = "\n".join(lineas)
         self.db.registrar_evento("pago", f"{titulo}. {' '.join(lineas)}")
-        await self.telegram.enviar(titulo, cuerpo)
+        await self.avisos.enviar(titulo, cuerpo)
 
     # ---- verificación de identidad de la contraparte -------------------------------
 
@@ -464,7 +534,7 @@ class Motor:
         enviado = False
         if self.cfg.pagos.enviar_telegram:
             encabezado = "⚠️ VERIFICA: " + veredicto.resumen + "\n\n" if veredicto.difiere else ""
-            enviado = await self.telegram.enviar(
+            enviado = await self.avisos.enviar(
                 f"Pago por preparar: Bs {formato_numero(datos.monto_bs)}",
                 encabezado + "Pega esto en “Pegar Datos” de tu BDVApp, confirma con tu clave y envía:\n\n" + bloque,
                 pre=True,
@@ -512,6 +582,6 @@ class Motor:
                 objetivo += timedelta(days=1)
             await asyncio.sleep((objetivo - ahora).total_seconds())
             try:
-                await self.telegram.enviar(*self.texto_resumen())
+                await self.avisos.enviar(*self.texto_resumen())
             except Exception:
                 log.exception("No pude enviar el resumen diario")

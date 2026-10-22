@@ -109,6 +109,13 @@ python -m arbitraje metodos          # identificadores de métodos de pago para 
 2. Escríbele a tu bot y saca tu **chat id** con [@userinfobot](https://t.me/userinfobot).
 3. Ponlos en `[alertas]`. Ajusta `spread_minimo_pct` y `resumen_diario_hora`.
 
+#### WhatsApp (opcional, gratis con CallMeBot)
+
+Los mismos avisos de Telegram pueden llegar a tu WhatsApp. Desde tu WhatsApp escribe
+`I allow callmebot to send me messages` al **+34 644 51 95 23**; te responde con una
+apikey. Ponla en `[alertas]` (`whatsapp_telefono` con código de país y solo dígitos, p. ej.
+`584141234567`, y `whatsapp_apikey`) o en las variables `WHATSAPP_TELEFONO` / `WHATSAPP_APIKEY`.
+
 ### 3. Conciliación automática de pagos del BDV
 
 El panel puede recibir tus SMS/notificaciones de pago y casarlos con tus órdenes.
@@ -233,6 +240,8 @@ empiezas y en qué moneda (**bolívares o USDT**). A partir de ahí:
 - **Contrapartes**: guarda la identidad verificada (nombre, cédula, teléfonos) de cada
   apodo de Binance con el que operas. El panel la usa para verificar que el banco
   coincida antes de pagar y antes de liberar.
+- **Simulador de ciclos**: pon capital, moneda y número de ciclos; proyecta la ganancia
+  (con o sin reinvertir) usando los precios de mercado y tus costos. No guarda nada.
 - **Formularios**: registrar una orden a mano y pegar un SMS del banco.
 - **Pausar / reanudar operatividad**: un botón que baja todos tus anuncios (fuera de
   línea) y los vuelve a publicar. El estado se comparte entre el teléfono y la PC.

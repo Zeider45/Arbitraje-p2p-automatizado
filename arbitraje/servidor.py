@@ -22,6 +22,7 @@ from pydantic import BaseModel, Field
 
 from . import (
     __version__, anuncios as mod_anuncios, banco, ganancias, mercado, pagos as mod_pagos, sesion as mod_sesion,
+    simulador as mod_simulador,
 )
 from .config import Config
 from .db import BaseDatos
@@ -87,6 +88,18 @@ class IniciarSesion(BaseModel):
 
 class CerrarSesion(BaseModel):
     nota_cierre: str | None = Field(default=None, max_length=200)
+
+
+class Simulacion(BaseModel):
+    capital: float = Field(gt=0)
+    moneda: Literal["VES", "USDT"] = "USDT"
+    ciclos: int = Field(default=10, ge=1, le=mod_simulador.MAX_CICLOS)
+    ciclos_por_dia: float = Field(default=1, gt=0, le=100)
+    rol: Literal["anunciante", "tomador"] = "anunciante"
+    ruta: Literal["BDV", "INTERBANCARIO"] | None = None
+    reinvertir: bool = True
+    precio_compra: float | None = Field(default=None, gt=0)  # lo que pagas por USDT; vacío = mercado actual
+    precio_venta: float | None = Field(default=None, gt=0)   # lo que recibes por USDT; vacío = mercado actual
 
 
 class Contraparte(BaseModel):
@@ -201,6 +214,8 @@ def datos_panel(cfg: Config, db: BaseDatos, motor: Motor, periodo: str) -> dict:
             "ruta_por_defecto": ruta,
             "binance_configurado": cfg.binance.tiene_claves,
             "telegram_configurado": motor.telegram.activo,
+            "pagos_automaticos": cfg.pagos.automatico,
+            "whatsapp_configurado": motor.whatsapp.activo,
             "webhook_configurado": bool(cfg.banco.webhook_token),
             "intervalo_mercado_seg": cfg.mercado.intervalo_seg,
             "bancos": mod_pagos.BANCOS_VE,
@@ -221,6 +236,7 @@ def datos_panel(cfg: Config, db: BaseDatos, motor: Motor, periodo: str) -> dict:
         "ciclos": [asdict(c) for c in reversed(ciclos) if en_periodo(c.ts_cierre)][:FILAS_TABLA],
         "banco": {"movimientos": list(reversed(movimientos))[:FILAS_TABLA], "conciliacion": conciliacion},
         "eventos": db.eventos(60),
+        "decisiones": db.eventos(40, "decision"),
     }
 
 
@@ -419,6 +435,26 @@ def crear_app(cfg: Config, iniciar_tareas: bool = True) -> FastAPI:
         db.registrar_evento("info", f"Sesión cerrada. Rendimiento: {resumen.get('rendimiento_total_pct') or 0:.2f}% "
                             f"({(ganancia or 0):+.2f} USDT).")
         return {"ok": True, "sesion": sesion, "resumen": resumen}
+
+    @app.post("/api/simulador")
+    def simular(datos: Simulacion):
+        """Proyección de ciclos con tu capital. No guarda nada ni toca Binance."""
+        ruta = (datos.ruta or cfg.anuncios.ruta).upper()
+        sug_compra, sug_venta = mod_simulador.precios_sugeridos(db.ultima_cotizacion(), cfg.costos, datos.rol)
+        p_compra, p_venta = datos.precio_compra or sug_compra, datos.precio_venta or sug_venta
+        if not p_compra or not p_venta:
+            raise HTTPException(422, "Aún no hay precios de mercado: escribe el precio de compra y de venta a mano.")
+        try:
+            resultado = mod_simulador.simular(
+                datos.capital, datos.moneda, datos.ciclos, p_compra, p_venta, cfg.costos, ruta=ruta, rol=datos.rol,
+                reinvertir=datos.reinvertir, ciclos_por_dia=datos.ciclos_por_dia,
+                limite_interbancario_bs=cfg.banco.limite_interbancario_bs,
+            )
+        except ValueError as e:
+            raise HTTPException(422, str(e))
+        resultado.update(ruta=ruta, rol=datos.rol, reinvertir=datos.reinvertir,
+                         precios_de_mercado=not (datos.precio_compra and datos.precio_venta))
+        return resultado
 
     @app.get("/api/contrapartes")
     def listar_contrapartes():
