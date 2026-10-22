@@ -1,0 +1,301 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Arbitraje P2P</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%232a78d6'/%3E%3Cpath d='M7 21l6-6 4 4 8-9' stroke='white' stroke-width='3' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="/static/estilos.css">
+<script>
+  // aplica el tema guardado antes de pintar, para que no parpadee
+  try { var t = localStorage.getItem("tema"); if (t === "light" || t === "dark") document.documentElement.dataset.theme = t; } catch (e) {}
+</script>
+</head>
+<body>
+<header class="barra">
+  <div class="marca">
+    <h1>Arbitraje P2P</h1>
+    <p class="sub"><span id="par">USDT/VES</span> · <span id="metodos">…</span></p>
+  </div>
+  <div class="estados">
+    <span class="insignia" id="insignia-demo" hidden>Demo · datos simulados</span>
+    <span class="chip" id="estado-mercado"><span class="icono" aria-hidden="true"></span><span class="texto">Mercado…</span></span>
+    <span class="chip" id="estado-sync"><span class="icono" aria-hidden="true"></span><span class="texto">Binance…</span></span>
+    <button class="boton-icono" id="tema" type="button" aria-label="Cambiar entre tema claro y oscuro" title="Tema claro / oscuro">◐</button>
+  </div>
+</header>
+
+<main id="contenido">
+  <div class="aviso" id="aviso-global" role="alert" hidden></div>
+
+  <nav class="filtros" aria-label="Período y acciones">
+    <div class="segmentado" role="radiogroup" aria-label="Período">
+      <button type="button" role="radio" data-periodo="hoy">Hoy</button>
+      <button type="button" role="radio" data-periodo="7d">7 días</button>
+      <button type="button" role="radio" data-periodo="30d">30 días</button>
+      <button type="button" role="radio" data-periodo="90d">90 días</button>
+      <button type="button" role="radio" data-periodo="todo">Todo</button>
+    </div>
+    <div class="acciones">
+      <button type="button" class="boton" id="btn-sync">Sincronizar con Binance</button>
+      <a class="boton secundario" id="exp-ordenes" href="/api/exportar/ordenes.csv">Exportar órdenes</a>
+      <a class="boton secundario" id="exp-ciclos" href="/api/exportar/ciclos.csv">Exportar ciclos</a>
+    </div>
+  </nav>
+
+  <section class="kpis" aria-label="Indicadores del período">
+    <article class="tile hero">
+      <h2 class="etiqueta">Ganancia neta del período</h2>
+      <p class="hero-valor"><span id="k-ganancia">—</span><span class="unidad">USDT</span></p>
+      <p class="detalle" id="k-ganancia-bs">—</p>
+      <p class="detalle delta" id="k-delta"></p>
+    </article>
+    <article class="tile">
+      <h2 class="etiqueta">Ganancia hoy</h2>
+      <p class="valor"><span id="k-hoy">—</span><span class="unidad">USDT</span></p>
+      <p class="detalle" id="k-hoy-det">—</p>
+    </article>
+    <article class="tile">
+      <h2 class="etiqueta">ROI del período</h2>
+      <p class="valor"><span id="k-roi">—</span><span class="unidad">%</span></p>
+      <p class="detalle" id="k-roi-det">—</p>
+    </article>
+    <article class="tile">
+      <h2 class="etiqueta">Spread capturado</h2>
+      <p class="valor"><span id="k-spread">—</span><span class="unidad">%</span></p>
+      <p class="detalle">promedio por ciclo, ya sin comisiones</p>
+    </article>
+    <article class="tile">
+      <h2 class="etiqueta">Volumen operado</h2>
+      <p class="valor"><span id="k-volumen">—</span><span class="unidad">USDT</span></p>
+      <p class="detalle" id="k-volumen-det">—</p>
+    </article>
+    <article class="tile">
+      <h2 class="etiqueta">Ciclos completados</h2>
+      <p class="valor"><span id="k-ciclos">—</span></p>
+      <p class="detalle" id="k-ciclos-det">—</p>
+    </article>
+    <article class="tile">
+      <h2 class="etiqueta">Órdenes completadas</h2>
+      <p class="valor"><span id="k-ordenes">—</span></p>
+      <p class="detalle" id="k-ordenes-det">—</p>
+    </article>
+  </section>
+
+  <section class="fila-2">
+    <article class="tarjeta" aria-labelledby="t-mercado">
+      <header class="cabecera">
+        <h2 id="t-mercado">Mercado ahora</h2>
+        <span class="sub" id="m-hora">—</span>
+      </header>
+      <div class="precios">
+        <div class="precio">
+          <span class="etiqueta">Comprar USDT</span>
+          <span class="cifra" id="m-compra">—</span>
+          <span class="sub">mejor anuncio de venta</span>
+        </div>
+        <div class="precio">
+          <span class="etiqueta">Vender USDT</span>
+          <span class="cifra" id="m-venta">—</span>
+          <span class="sub">mejor anuncio de compra</span>
+        </div>
+        <div class="precio">
+          <span class="etiqueta">Brecha</span>
+          <span class="cifra" id="m-brecha">—</span>
+          <span class="sub">entre ambos anuncios</span>
+        </div>
+      </div>
+      <div class="netos">
+        <div class="neto"><span class="etiqueta">Neto como anunciante, pagando BDV→BDV</span><span class="cifra-media" id="m-neto-bdv">—</span></div>
+        <div class="neto"><span class="etiqueta">Neto como anunciante, pagando interbancario</span><span class="cifra-media" id="m-neto-inter">—</span></div>
+        <div class="neto"><span class="etiqueta">Neto como tomador (compras y vendes al instante)</span><span class="cifra-media" id="m-neto-tomador">—</span></div>
+      </div>
+      <p class="sugerencia" id="m-sugerencia"></p>
+      <details class="anuncios">
+        <summary>Mejores anuncios ahora</summary>
+        <div class="dos-tablas">
+          <div><h3>Para comprar USDT</h3><div class="tabla-envoltura" id="m-anuncios-compra"></div></div>
+          <div><h3>Para vender USDT</h3><div class="tabla-envoltura" id="m-anuncios-venta"></div></div>
+        </div>
+      </details>
+    </article>
+
+    <article class="tarjeta" aria-labelledby="t-operacion">
+      <header class="cabecera">
+        <h2 id="t-operacion">Tu operación</h2>
+        <span class="sub" id="o-capital">—</span>
+      </header>
+      <div class="medidor">
+        <div class="medidor-cabecera">
+          <span class="etiqueta" id="o-inter-etiqueta">Pagos interbancarios hoy</span>
+          <span class="medidor-valor" id="o-inter-valor">—</span>
+        </div>
+        <div class="pista" id="o-inter-pista" role="progressbar" aria-labelledby="o-inter-etiqueta" aria-valuemin="0" aria-valuemax="100">
+          <div class="relleno" id="o-inter-relleno"></div>
+        </div>
+        <p class="sub" id="o-inter-det">—</p>
+      </div>
+      <dl class="datos">
+        <div><dt>Pagos BDV→BDV hoy</dt><dd id="o-bdv">—</dd></div>
+        <div><dt>Posición abierta</dt><dd id="o-posicion">—</dd></div>
+        <div><dt>Si la cierras ahora</dt><dd id="o-no-realizado">—</dd></div>
+        <div><dt>Días con ganancia</dt><dd id="o-dias">—</dd></div>
+        <div><dt>Mejor día del período</dt><dd id="o-mejor">—</dd></div>
+        <div><dt>Rotación del capital</dt><dd id="o-rotacion">—</dd></div>
+      </dl>
+    </article>
+  </section>
+
+  <section class="tarjeta anuncios" aria-labelledby="t-anuncios">
+    <header class="cabecera">
+      <div>
+        <h2 id="t-anuncios">Automatización de anuncios</h2>
+        <p class="sub" id="an-sub">Mueve tus anuncios de compra y venta para quedar de primero sin bajar del margen mínimo.</p>
+      </div>
+      <div class="an-acciones">
+        <span class="chip" id="an-estado"><span class="icono" aria-hidden="true"></span><span class="texto">—</span></span>
+        <button type="button" class="boton secundario" id="an-reposicionar">Calcular ahora</button>
+      </div>
+    </header>
+    <div class="an-grid">
+      <div class="an-lado" id="an-compra">
+        <span class="etiqueta">Tu anuncio de compra</span>
+        <span class="cifra" data-precio>—</span>
+        <span class="sub" data-nota>—</span>
+      </div>
+      <div class="an-lado" id="an-venta">
+        <span class="etiqueta">Tu anuncio de venta</span>
+        <span class="cifra" data-precio>—</span>
+        <span class="sub" data-nota>—</span>
+      </div>
+      <div class="an-lado destacado">
+        <span class="etiqueta">Margen por vuelta</span>
+        <span class="cifra" id="an-margen">—</span>
+        <span class="sub" id="an-margen-nota">—</span>
+      </div>
+    </div>
+    <p class="an-log sub" id="an-log"></p>
+    <p class="aviso-inline" id="an-modo-real" hidden>Modo real activo: el bot mueve precios de verdad en tu cuenta de Binance.</p>
+  </section>
+
+  <section class="graficos" aria-label="Gráficos">
+    <figure class="grafico" id="g-ganancia">
+      <figcaption class="cabecera">
+        <div>
+          <h2 id="g-ganancia-titulo">Ganancia por día</h2>
+          <p class="sub">USDT · <span class="clave-barra pos" aria-hidden="true"></span>ganancia <span class="clave-barra neg" aria-hidden="true"></span>pérdida</p>
+        </div>
+        <button type="button" class="ver-tabla" aria-expanded="false">Ver tabla</button>
+      </figcaption>
+      <div class="lienzo"></div>
+      <div class="tabla-alt tabla-envoltura" hidden></div>
+    </figure>
+    <figure class="grafico" id="g-acumulada">
+      <figcaption class="cabecera">
+        <div>
+          <h2>Ganancia acumulada</h2>
+          <p class="sub">USDT desde el inicio del período</p>
+        </div>
+        <button type="button" class="ver-tabla" aria-expanded="false">Ver tabla</button>
+      </figcaption>
+      <div class="lienzo"></div>
+      <div class="tabla-alt tabla-envoltura" hidden></div>
+    </figure>
+    <figure class="grafico" id="g-precios">
+      <figcaption class="cabecera">
+        <div>
+          <h2>Precio en Binance P2P</h2>
+          <ul class="leyenda" aria-label="Series">
+            <li><span class="clave-linea s1" aria-hidden="true"></span>Comprar USDT</li>
+            <li><span class="clave-linea s2" aria-hidden="true"></span>Vender USDT</li>
+          </ul>
+        </div>
+        <button type="button" class="ver-tabla" aria-expanded="false">Ver tabla</button>
+      </figcaption>
+      <div class="lienzo"></div>
+      <div class="tabla-alt tabla-envoltura" hidden></div>
+    </figure>
+    <figure class="grafico" id="g-spread">
+      <figcaption class="cabecera">
+        <div>
+          <h2>Ganancia neta por vuelta como anunciante</h2>
+          <p class="sub" id="g-spread-sub">% por cada USDT comprado y vendido</p>
+        </div>
+        <button type="button" class="ver-tabla" aria-expanded="false">Ver tabla</button>
+      </figcaption>
+      <div class="lienzo"></div>
+      <div class="tabla-alt tabla-envoltura" hidden></div>
+    </figure>
+  </section>
+
+  <section class="tarjeta tablas" aria-label="Detalle">
+    <div class="pestanas" role="tablist">
+      <button type="button" role="tab" aria-selected="true" aria-controls="p-ordenes" id="tab-ordenes">Órdenes <span class="contador" id="c-ordenes"></span></button>
+      <button type="button" role="tab" aria-selected="false" aria-controls="p-ciclos" id="tab-ciclos">Ciclos <span class="contador" id="c-ciclos"></span></button>
+      <button type="button" role="tab" aria-selected="false" aria-controls="p-banco" id="tab-banco">Banco <span class="contador" id="c-banco"></span></button>
+      <button type="button" role="tab" aria-selected="false" aria-controls="p-eventos" id="tab-eventos">Eventos</button>
+    </div>
+    <div class="panel-pestana tabla-envoltura" id="p-ordenes" role="tabpanel" aria-labelledby="tab-ordenes"></div>
+    <div class="panel-pestana tabla-envoltura" id="p-ciclos" role="tabpanel" aria-labelledby="tab-ciclos" hidden></div>
+    <div class="panel-pestana" id="p-banco" role="tabpanel" aria-labelledby="tab-banco" hidden></div>
+    <div class="panel-pestana tabla-envoltura" id="p-eventos" role="tabpanel" aria-labelledby="tab-eventos" hidden></div>
+  </section>
+
+  <section class="fila-2">
+    <details class="tarjeta formulario">
+      <summary>Registrar una orden a mano</summary>
+      <form id="f-orden" autocomplete="off">
+        <div class="campos">
+          <label>Tipo
+            <select name="tipo">
+              <option value="COMPRA">Compré USDT</option>
+              <option value="VENTA">Vendí USDT</option>
+            </select>
+          </label>
+          <label>Cantidad (USDT)<input name="cantidad" type="number" step="0.01" min="0.01" required></label>
+          <label>Precio (Bs por USDT)<input name="precio" type="number" step="0.01" min="0.01" required></label>
+          <label>Comisión Binance (USDT)<input name="comision" type="number" step="0.0001" min="0" value="0"></label>
+          <label class="solo-compra">Cómo pagaste
+            <select name="ruta_pago">
+              <option value="">Según configuración</option>
+              <option value="BDV">BDV → BDV</option>
+              <option value="INTERBANCARIO">Interbancario</option>
+            </select>
+          </label>
+          <label>Fecha y hora<input name="fecha" type="datetime-local"></label>
+          <label>Contraparte<input name="contraparte" maxlength="80"></label>
+          <label>Nota<input name="nota" maxlength="300"></label>
+        </div>
+        <div class="pie-formulario">
+          <span class="sub" id="f-orden-total">Total: —</span>
+          <button type="submit" class="boton">Guardar orden</button>
+        </div>
+        <p class="resultado" id="f-orden-resultado" role="status"></p>
+      </form>
+    </details>
+    <details class="tarjeta formulario">
+      <summary>Registrar un pago del banco (pegar SMS)</summary>
+      <form id="f-banco" autocomplete="off">
+        <label>Texto del SMS o notificación del BDV
+          <textarea name="texto" rows="3" maxlength="2000" placeholder="Ej.: Recibiste un PagomovilBDV por Bs. 15.230,00 del 0414-1234567 Ref: 001234567890"></textarea>
+        </label>
+        <div class="pie-formulario">
+          <button type="button" class="boton secundario" id="f-banco-probar">Probar lectura</button>
+          <button type="submit" class="boton">Guardar pago</button>
+        </div>
+        <p class="resultado" id="f-banco-resultado" role="status"></p>
+      </form>
+    </details>
+  </section>
+
+  <footer class="pie">
+    <p><strong>Regla de oro:</strong> los pagos se hacen siempre desde tu BDVApp, y solo liberas USDT cuando el dinero ya está en tu cuenta y el titular coincide con el comprador de Binance.</p>
+    <p class="sub">Ganancia calculada por ciclos FIFO, descontando comisiones de Binance y del banco. Herramienta de apoyo, no asesoría financiera.</p>
+  </footer>
+</main>
+
+<div class="tooltip" id="tooltip" hidden></div>
+<script src="/static/graficos.js"></script>
+<script src="/static/panel.js"></script>
+</body>
+</html>

@@ -1,0 +1,85 @@
+# Configuración del panel de arbitraje P2P USDT/VES.
+# Copia este archivo como "config.toml" y ajústalo. Los secretos (claves de API,
+# tokens, clave del panel) es mejor ponerlos en variables de entorno, no aquí.
+#
+#   cp config.example.toml config.toml
+#
+# Variables de entorno que pisan lo de este archivo (útiles en un VPS o Docker):
+#   BINANCE_API_KEY, BINANCE_API_SECRET, TELEGRAM_TOKEN, TELEGRAM_CHAT_ID,
+#   WEBHOOK_TOKEN, PANEL_USUARIO, PANEL_CLAVE, PANEL_HOST, PANEL_PUERTO, ARBITRAJE_DB
+
+[general]
+zona_horaria = "America/Caracas"
+base_datos = "datos/arbitraje.db"
+capital_usdt = 1000.0            # tu capital de trabajo, para calcular el ROI
+
+[binance]
+# API key de Binance. Para importar tu historial de órdenes basta "Enable Reading".
+# Solo si vas a dejar que el bot MUEVA anuncios de verdad necesitas permiso de
+# escritura (y cuenta de comerciante verificada). NUNCA actives retiros.
+api_key = ""
+api_secret = ""
+dias_historial = 30             # cuántos días importar la primera vez (máx. 180)
+intervalo_sync_min = 5.0        # cada cuánto re-sincronizar tus órdenes
+
+[mercado]
+activo = "USDT"
+fiat = "VES"
+# Identificadores de métodos de pago. Mira los exactos con:  python -m arbitraje metodos
+metodos_pago = ["BancoDeVenezuela", "PagoMovil"]
+monto_bs = 0.0                  # 0 = sin filtrar por monto; si no, solo anuncios que lo acepten
+min_ordenes_mes = 50           # ignora anunciantes con pocas órdenes
+min_tasa_completado = 90.0     # % mínimo de órdenes completadas del anunciante
+solo_comerciantes = false
+ignorar_apodos = []            # tus propios apodos u otros que quieras excluir
+intervalo_seg = 60.0           # cada cuánto consultar precios (mínimo 15 s)
+
+[costos]
+# Comisiones y costos con los que se calcula la ganancia neta.
+comision_anunciante_pct = 0.25   # comisión de Binance cuando eres anunciante (maker)
+comision_tomador_pct = 0.0       # comisión como tomador (taker)
+costo_mismo_banco_pct = 0.0      # transferencia BDV -> BDV (normalmente gratis)
+costo_interbancario_pct = 0.30   # BDV -> otro banco (Pago Móvil interbancario)
+costo_interbancario_min_bs = 14.0
+costo_banco_venta_pct = 0.0      # recibir pagos no suele costar
+tick_bs = 0.01                   # paso mínimo de precio para ponerte 1 lugar delante
+
+[anuncios]
+# Repositor automático de TUS anuncios (lado anunciante del arbitraje).
+automatico = false               # true = el bot mueve tus precios solo
+modo = "simular"                 # "simular" (no toca Binance) | "real" (publica de verdad)
+margen_minimo_pct = 0.8          # nunca publica por debajo de este neto por vuelta
+desfase_tick = 1                 # cuántos ticks mejoras al mejor rival
+intervalo_seg = 45.0
+reponer_segundos = 0.0           # republica cada N s aunque el precio no cambie (0 = no)
+lados = ["COMPRA", "VENTA"]      # qué anuncios gestiona
+ruta = "BDV"                     # ruta bancaria para calcular el margen del anuncio
+# Para modo real necesitas tener ya creados en Binance tus anuncios de compra/venta;
+# el bot solo les mueve el precio (no crea desde cero, para no publicar algo mal por error).
+
+[alertas]
+spread_minimo_pct = 1.0          # avisa cuando el neto como anunciante supere esto
+enfriamiento_min = 30.0          # no repetir la misma alerta antes de N minutos
+resumen_diario_hora = "21:00"    # resumen por Telegram ("" para desactivarlo)
+telegram_token = ""              # de @BotFather
+telegram_chat_id = ""            # tu chat id (de @userinfobot)
+
+[banco]
+# Límites y conciliación de pagos del Banco de Venezuela.
+ruta_por_defecto = "interbancario"   # cómo supones que pagaste si la orden no lo dice
+limite_bdv_bs = 0.0                  # 0 = sin límite (entre cuentas BDV)
+limite_interbancario_bs = 2500000.0  # tope diario interbancario
+webhook_token = ""                   # token secreto para recibir SMS automáticos
+tolerancia_bs = 1.0                  # diferencia máxima para casar un pago con una orden
+ventana_min = 180.0                  # minutos alrededor de la orden para buscar el pago
+# Patrones opcionales si tu banco escribe los SMS distinto (expresiones regulares):
+patron_entrada = ""
+patron_salida = ""
+patron_monto = ""
+patron_referencia = ""
+
+[panel]
+host = "127.0.0.1"               # 127.0.0.1 = solo este equipo; 0.0.0.0 = toda la red (pon clave)
+puerto = 8000
+usuario = "admin"
+clave = ""                       # déjala vacía solo si el panel es local; obligatoria si lo expones

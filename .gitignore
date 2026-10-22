@@ -1,0 +1,15 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+
+# Datos locales y secretos
+config.toml
+datos/
+*.db
+*.db-wal
+*.db-shm
+.env

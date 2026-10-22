@@ -1,0 +1,712 @@
+/* Lógica del panel: pide /api/panel y dibuja indicadores, gráficos y tablas. */
+(function () {
+  "use strict";
+
+  const G = window.Graficos;
+  const $ = (selector) => document.querySelector(selector);
+  const NOMBRES_METODO = { BancoDeVenezuela: "Banco de Venezuela", PagoMovil: "Pago Móvil" };
+  const ESTADOS = {
+    COMPLETED: "Completada", CANCELLED: "Cancelada", CANCELLED_BY_SYSTEM: "Cancelada (sistema)",
+    PENDING: "Pendiente", TRADING: "En curso", BUYER_PAYED: "Pagada, por liberar",
+    DISTRIBUTING: "Liberando", IN_APPEAL: "En apelación",
+  };
+  const NIVELES = { info: "Info", oportunidad: "Oportunidad", pago: "Pago", error: "Error" };
+  const PERIODOS = ["hoy", "7d", "30d", "90d", "todo"];
+  const DIA_MS = 86400000;
+
+  let periodo = PERIODOS.includes(leer("periodo")) ? leer("periodo") : "30d";
+  let zona = "America/Caracas";
+  let ocupado = false;
+  const dibujos = {};
+  const formatosNumero = {};
+  const formatosFecha = {};
+
+  // ---- utilidades ------------------------------------------------------------
+
+  function leer(clave) { try { return localStorage.getItem(clave); } catch (e) { return null; } }
+  function guardar(clave, valor) { try { localStorage.setItem(clave, valor); } catch (e) { /* sin almacenamiento */ } }
+
+  function num(v, dec = 2) {
+    if (v == null || !isFinite(v)) return "—";
+    const f = formatosNumero[dec] || (formatosNumero[dec] = new Intl.NumberFormat("es-VE", { minimumFractionDigits: dec, maximumFractionDigits: dec }));
+    return f.format(v);
+  }
+  function conSigno(v, dec = 2) {
+    if (v == null || !isFinite(v)) return "—";
+    const abs = num(Math.abs(v), dec);
+    if (abs === num(0, dec)) return abs;
+    return (v > 0 ? "+" : "−") + abs;
+  }
+  function compacto(v) {
+    const a = Math.abs(v);
+    if (a >= 1e6) return num(v / 1e6, a >= 1e7 ? 0 : 1) + " M";
+    if (a >= 1e4) return num(v / 1e3, 0) + " k";
+    return num(v, 0);
+  }
+  function fecha(ts, opciones) {
+    const clave = zona + JSON.stringify(opciones);
+    const f = formatosFecha[clave] || (formatosFecha[clave] = new Intl.DateTimeFormat("es-VE", { timeZone: zona, ...opciones }));
+    return f.format(new Date(ts));
+  }
+  const fechaHora = (ts) => fecha(ts, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
+  const soloHora = (ts) => fecha(ts, { hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
+  const diaCorto = (ts) => fecha(ts, { day: "numeric", month: "short" });
+  function partesISO(iso) { const [a, m, d] = iso.split("-").map(Number); return Date.UTC(a, m - 1, d, 12); }
+  function diaDeISO(iso) {
+    return new Intl.DateTimeFormat("es-VE", { timeZone: "UTC", day: "numeric", month: "short" }).format(new Date(partesISO(iso)));
+  }
+  function hace(ts) {
+    if (!ts) return "sin datos";
+    const s = Math.max(0, Math.round((Date.now() - ts) / 1000));
+    if (s < 60) return `hace ${s} s`;
+    const m = Math.round(s / 60);
+    if (m < 60) return `hace ${m} min`;
+    const h = Math.round(m / 60);
+    return h < 48 ? `hace ${h} h` : `hace ${Math.round(h / 24)} días`;
+  }
+  function el(tag, props, ...hijos) {
+    const n = document.createElement(tag);
+    for (const [k, v] of Object.entries(props || {})) {
+      if (k === "class") n.className = v;
+      else if (k === "text") n.textContent = v;
+      else if (k.startsWith("on")) n.addEventListener(k.slice(2), v);
+      else n.setAttribute(k, v);
+    }
+    for (const h of hijos) if (h != null) n.append(h);
+    return n;
+  }
+  function poner(id, texto) { const n = document.getElementById(id); if (n) n.textContent = texto; }
+  const rutaTexto = (ruta) => (ruta === "BDV" ? "BDV → BDV" : "interbancario");
+  const ejeNumero = (v, paso) => num(v, paso < 0.1 ? 2 : paso < 1 ? 1 : 0);
+
+  async function api(ruta, opciones) {
+    const r = await fetch(ruta, { cache: "no-store", headers: { "Content-Type": "application/json" }, ...opciones });
+    let cuerpo = null;
+    try { cuerpo = await r.json(); } catch (e) { /* sin cuerpo JSON */ }
+    if (!r.ok) {
+      const detalle = cuerpo && cuerpo.detail;
+      throw new Error(typeof detalle === "string" ? detalle : `el servidor respondió ${r.status}`);
+    }
+    return cuerpo;
+  }
+
+  // ---- carga ----------------------------------------------------------------
+
+  async function cargar(conAtenuado) {
+    if (ocupado) return;
+    ocupado = true;
+    if (conAtenuado) document.body.classList.add("cargando");
+    try {
+      render(await api(`/api/panel?periodo=${encodeURIComponent(periodo)}`));
+    } catch (e) {
+      avisos([`No pude actualizar el panel: ${e.message}. Reintento en unos segundos.`]);
+    } finally {
+      ocupado = false;
+      document.body.classList.remove("cargando");
+    }
+  }
+
+  function render(d) {
+    zona = d.config.zona_horaria || zona;
+    renderCabecera(d);
+    renderKpis(d);
+    renderMercado(d);
+    renderOperacion(d);
+    renderAnuncios(d);
+    renderGraficos(d);
+    renderOrdenes(d);
+    renderCiclos(d);
+    renderBanco(d);
+    renderEventos(d);
+  }
+
+  // ---- cabecera y avisos -----------------------------------------------------
+
+  function chip(selector, estado, texto, titulo) {
+    const n = $(selector);
+    n.dataset.estado = estado;
+    n.querySelector(".texto").textContent = texto;
+    n.title = titulo || "";
+  }
+
+  function avisos(lista) {
+    const n = $("#aviso-global");
+    n.textContent = "";
+    for (const t of lista) n.append(el("p", { text: t }));
+    n.hidden = !lista.length;
+  }
+
+  function renderCabecera(d) {
+    const c = d.config;
+    const em = d.estado.mercado;
+    const es = d.estado.sincronizacion;
+    poner("par", `${c.activo}/${c.fiat}`);
+    poner("metodos", c.metodos_pago.map((m) => NOMBRES_METODO[m] || m).join(" + "));
+    $("#insignia-demo").hidden = !c.demo;
+    if (em.ok === true) chip("#estado-mercado", em.aviso ? "aviso" : "ok", `Mercado ${hace(em.ok_ms)}`, em.aviso || "");
+    else if (em.ok === false) chip("#estado-mercado", "error", "Mercado: error", em.error);
+    else chip("#estado-mercado", "apagado", "Mercado: esperando…", "");
+    if (!c.binance_configurado) {
+      chip("#estado-sync", "apagado", c.demo ? "Binance: modo demo" : "Binance: sin API key",
+        "Agrega una API key de solo lectura para importar tus órdenes automáticamente");
+    } else if (es.ok === true) chip("#estado-sync", "ok", `Binance ${hace(es.ok_ms)}`, "");
+    else if (es.ok === false) chip("#estado-sync", "error", "Binance: error", es.error);
+    else chip("#estado-sync", "apagado", "Binance: esperando…", "");
+    $("#btn-sync").hidden = !c.binance_configurado;
+    $("#exp-ordenes").href = `/api/exportar/ordenes.csv?periodo=${periodo}`;
+    $("#exp-ciclos").href = `/api/exportar/ciclos.csv?periodo=${periodo}`;
+    avisos([em.error, em.aviso, es.error].filter(Boolean));
+  }
+
+  // ---- indicadores -----------------------------------------------------------
+
+  function renderKpis(d) {
+    const r = d.resumen;
+    poner("k-ganancia", num(r.ganancia_usdt));
+    poner("k-ganancia-bs", `≈ Bs ${num(r.ganancia_bs, 0)} en ${r.dias} ${r.dias === 1 ? "día" : "días"}`);
+    const delta = $("#k-delta");
+    delta.textContent = "";
+    if (r.ganancia_anterior_usdt != null) {
+      const diferencia = r.ganancia_usdt - r.ganancia_anterior_usdt;
+      delta.append(
+        el("span", { class: "flecha " + (diferencia >= 0 ? "sube" : "baja"), "aria-hidden": "true", text: diferencia >= 0 ? "▲" : "▼" }),
+        `${conSigno(diferencia)} USDT frente al período anterior`,
+      );
+    }
+    poner("k-hoy", conSigno(r.ganancia_hoy_usdt));
+    poner("k-hoy-det", `${r.ciclos_hoy} ${r.ciclos_hoy === 1 ? "ciclo" : "ciclos"} · Bs ${conSigno(r.ganancia_hoy_bs, 0)}`);
+    poner("k-roi", num(r.roi_pct));
+    poner("k-roi-det", `≈ ${num(r.roi_diario_pct)} % por día · capital ${num(r.capital_usdt, 0)} USDT`);
+    poner("k-spread", num(r.spread_promedio_pct));
+    poner("k-volumen", num(r.volumen_usdt, 0));
+    poner("k-volumen-det", `Bs ${compacto(r.volumen_bs)} en órdenes completadas`);
+    poner("k-ciclos", num(r.ciclos, 0));
+    poner("k-ciclos-det", r.ciclos ? `≈ ${num(r.ganancia_usdt / r.ciclos)} USDT por ciclo` : "aún sin ciclos cerrados");
+    poner("k-ordenes", num(r.ordenes.completadas, 0));
+    poner("k-ordenes-det", `${r.ordenes.compras} compras · ${r.ordenes.ventas} ventas · ${r.ordenes.canceladas} canceladas`);
+  }
+
+  // ---- mercado ---------------------------------------------------------------
+
+  function renderMercado(d) {
+    const a = d.mercado.actual;
+    if (!a) {
+      poner("m-hora", "esperando la primera consulta…");
+      return;
+    }
+    poner("m-hora", `${hace(a.ts_ms)} · ${a.anuncios_compra} vendedores y ${a.anuncios_venta} compradores válidos`);
+    poner("m-compra", a.precio_compra ? `${num(a.precio_compra)} Bs` : "—");
+    poner("m-venta", a.precio_venta ? `${num(a.precio_venta)} Bs` : "—");
+    poner("m-brecha", a.spread_pct != null ? `${num(a.spread_pct)} %` : "—");
+    const umbral = d.config.spread_minimo_pct;
+    neto("m-neto-bdv", a.netos_por_ruta.bdv, (v) => v >= umbral, "sobre tu umbral");
+    neto("m-neto-inter", a.netos_por_ruta.interbancario, (v) => v >= umbral, "sobre tu umbral");
+    neto("m-neto-tomador", a.neto_tomador_pct, (v) => v > 0, "arbitraje inmediato");
+    poner("m-sugerencia", a.sugerido_compra && a.sugerido_venta
+      ? `Para quedar de primero: tu anuncio de compra a ${num(a.sugerido_compra)} Bs y el de venta a ${num(a.sugerido_venta)} Bs.`
+      : "");
+    tablaAnuncios("#m-anuncios-compra", a.detalle && a.detalle.compra);
+    tablaAnuncios("#m-anuncios-venta", a.detalle && a.detalle.venta);
+  }
+
+  function neto(id, valor, destacar, texto) {
+    const n = document.getElementById(id);
+    n.textContent = "";
+    n.append(valor == null ? "—" : `${conSigno(valor)} %`);
+    if (valor != null && destacar(valor)) n.append(el("span", { class: "marca-umbral estado-ok", text: texto }));
+  }
+
+  function tablaAnuncios(selector, anuncios) {
+    G.tabla($(selector), [
+      { titulo: "Precio", num: true, valor: (a) => num(a.precio) },
+      { titulo: "USDT", num: true, valor: (a) => num(a.disponible, 0) },
+      { titulo: "Límites Bs", num: true, valor: (a) => `${compacto(a.min_bs)}–${compacto(a.max_bs)}` },
+      { titulo: "Anunciante", valor: (a) => a.anunciante },
+      { titulo: "Órdenes/mes", num: true, valor: (a) => num(a.ordenes_mes, 0) },
+      { titulo: "Completadas", num: true, valor: (a) => `${num(a.tasa_completado * 100, 1)} %` },
+    ], anuncios || [], "Sin detalle de anuncios todavía.");
+  }
+
+  // ---- tu operación ----------------------------------------------------------
+
+  function renderOperacion(d) {
+    const r = d.resumen;
+    const a = d.mercado.actual;
+    poner("o-capital", `capital ${num(r.capital_usdt, 0)} USDT`);
+    const inter = r.pagado_hoy.interbancario;
+    const relleno = $("#o-inter-relleno");
+    const pista = $("#o-inter-pista");
+    if (inter.limite_bs > 0) {
+      const pct = (inter.usado_bs / inter.limite_bs) * 100;
+      const queda = Math.max(0, inter.limite_bs - inter.usado_bs);
+      poner("o-inter-valor", `${num(pct, 0)} %`);
+      relleno.style.width = `${Math.min(100, pct)}%`;
+      relleno.dataset.nivel = pct >= 90 ? "critico" : pct >= 70 ? "aviso" : "";
+      pista.setAttribute("aria-valuenow", String(Math.round(Math.min(100, pct))));
+      poner("o-inter-det", `Bs ${num(inter.usado_bs, 0)} de ${num(inter.limite_bs, 0)} · quedan Bs ${num(queda, 0)}` +
+        (a && a.precio_compra ? ` (≈ ${num(queda / a.precio_compra, 0)} USDT)` : ""));
+    } else {
+      poner("o-inter-valor", "sin límite");
+      relleno.style.width = "0";
+      pista.setAttribute("aria-valuenow", "0");
+      poner("o-inter-det", `Bs ${num(inter.usado_bs, 0)} pagados hoy`);
+    }
+    const bdv = r.pagado_hoy.bdv;
+    poner("o-bdv", `Bs ${num(bdv.usado_bs, 0)} · ${bdv.limite_bs > 0 ? `límite ${num(bdv.limite_bs, 0)}` : "sin límite"}`);
+    const p = r.posicion;
+    if (Math.abs(p.usdt) < 0.005) poner("o-posicion", "sin posición abierta");
+    else if (p.usdt > 0) poner("o-posicion", `${num(p.usdt)} USDT comprados sin vender, a ${num(p.precio_promedio)}`);
+    else poner("o-posicion", `${num(-p.usdt)} USDT vendidos sin recomprar, a ${num(p.precio_promedio)}`);
+    poner("o-no-realizado", p.no_realizado_usdt == null ? "—" : `${conSigno(p.no_realizado_usdt)} USDT (Bs ${conSigno(p.no_realizado_bs, 0)})`);
+    poner("o-dias", r.dias_operados ? `${r.dias_positivos} de ${r.dias_operados}` : "—");
+    poner("o-mejor", r.mejor_dia ? `${diaDeISO(r.mejor_dia.fecha)} · ${conSigno(r.mejor_dia.ganancia_usdt)} USDT` : "—");
+    poner("o-rotacion", `${num(r.rotacion, 1)} veces tu capital`);
+  }
+
+  // ---- automatización de anuncios --------------------------------------------
+
+  function ladoAnuncio(id, datos) {
+    const caja = document.getElementById(id);
+    const precio = caja.querySelector("[data-precio]");
+    const nota = caja.querySelector("[data-nota]");
+    caja.querySelector(".insignia-lider")?.remove();
+    if (!datos || !datos.publicar || datos.precio == null) {
+      caja.dataset.activo = "no";
+      precio.textContent = "en pausa";
+      nota.textContent = datos ? datos.motivo : "—";
+      return;
+    }
+    caja.dataset.activo = "si";
+    precio.textContent = `${num(datos.precio)} Bs`;
+    nota.textContent = datos.competitivo ? "quedas de primero" : "precio con margen protegido";
+    if (datos.competitivo) {
+      const insignia = el("span", { class: "insignia-lider estado-ok", text: "Líder" });
+      caja.insertBefore(insignia, nota);
+    }
+  }
+
+  function renderAnuncios(d) {
+    const a = d.anuncios;
+    if (!a) return;
+    const cfg = a.config;
+    const estado = a.estado;
+    const plan = a.plan || (estado && estado.lados ? { lados: estado.lados, margen_pct: estado.margen_pct, competitivo: estado.competitivo } : null);
+    const modo = cfg.modo === "real" ? "modo real" : "modo simulación";
+    poner("an-sub", cfg.automatico
+      ? `Repositor activo en ${modo}, cada ${Math.round(cfg.intervalo_seg)} s · margen mínimo ${num(cfg.margen_minimo_pct, 1)} % · pago ${rutaTexto(cfg.ruta)}.`
+      : "Repositor apagado. Actívalo con anuncios.automatico = true en config.toml, o pulsa “Calcular ahora” para ver qué haría.");
+    const chip = $("#an-estado");
+    if (!cfg.automatico) chip.dataset.estado = "apagado";
+    else if (estado.error) chip.dataset.estado = "error";
+    else chip.dataset.estado = cfg.modo === "real" ? "ok" : "aviso";
+    chip.querySelector(".texto").textContent = !cfg.automatico ? "Apagado"
+      : estado.error ? "Error" : cfg.modo === "real" ? `Real · ${hace(estado.ok_ms)}` : `Simulación · ${hace(estado.ok_ms)}`;
+    chip.title = estado.error || "";
+
+    ladoAnuncio("an-compra", plan && plan.lados ? plan.lados.compra : null);
+    ladoAnuncio("an-venta", plan && plan.lados ? plan.lados.venta : null);
+    const margen = plan ? plan.margen_pct : null;
+    poner("an-margen", margen == null ? "—" : `${conSigno(margen)} %`);
+    poner("an-margen-nota", margen == null ? "sin mercado aún"
+      : margen >= cfg.margen_minimo_pct ? "cumple tu mínimo" : "por debajo de tu mínimo");
+    const acciones = (estado && estado.acciones) || [];
+    poner("an-log", acciones.length ? acciones.map((x) => "• " + x.texto).join("\n") : (estado && estado.error) || "");
+    $("#an-modo-real").hidden = !(cfg.automatico && cfg.modo === "real");
+    $("#an-reposicionar").hidden = !cfg.binance_configurado && cfg.modo === "real";
+  }
+
+  // ---- gráficos --------------------------------------------------------------
+
+  function figura(id, dibujar, columnas, filas) {
+    const fig = document.getElementById(id);
+    const lienzo = fig.querySelector(".lienzo");
+    dibujos[id] = () => dibujar(lienzo);
+    dibujos[id]();
+    G.tabla(fig.querySelector(".tabla-alt"), columnas, filas);
+  }
+
+  function renderGraficos(d) {
+    // con el período "hoy" una sola barra no dice nada: se grafica cada ciclo
+    const porCiclo = d.periodo === "hoy";
+    const ciclos = [...d.ciclos].reverse();
+    poner("g-ganancia-titulo", porCiclo ? "Ganancia por ciclo, hoy" : "Ganancia por día");
+
+    const barras = porCiclo
+      ? ciclos.map((c) => ({ etiqueta: soloHora(c.ts_cierre), valor: c.ganancia_usdt, ciclo: c }))
+      : d.diaria.map((f) => ({ etiqueta: diaDeISO(f.fecha), valor: f.ganancia_usdt, dia: f }));
+    figura("g-ganancia", (lienzo) => G.barras(lienzo, barras, {
+      descripcion: porCiclo ? "Ganancia de cada ciclo de hoy en USDT" : "Ganancia de cada día en USDT",
+      vacio: "Sin ciclos cerrados en este período",
+      formatoEje: ejeNumero,
+      formatoEtiqueta: (v) => conSigno(v),
+      tooltip: (b) => porCiclo
+        ? { titulo: `Ciclo cerrado a las ${b.etiqueta}`, filas: [
+          { valor: `${conSigno(b.valor)} USDT`, clase: b.valor < 0 ? "neg" : "s1" },
+          { valor: `${num(b.ciclo.usdt)} USDT`, nombre: "emparejados" },
+          { valor: `${num(b.ciclo.spread_pct)} %`, nombre: "spread" }] }
+        : { titulo: b.etiqueta, filas: [
+          { valor: `${conSigno(b.valor)} USDT`, clase: b.valor < 0 ? "neg" : "s1" },
+          { valor: `Bs ${conSigno(b.dia.ganancia_bs, 0)}` },
+          { valor: String(b.dia.ciclos), nombre: b.dia.ciclos === 1 ? "ciclo" : "ciclos" },
+          { valor: `${num(b.dia.volumen_usdt, 0)} USDT`, nombre: "volumen" }] },
+    }), porCiclo
+      ? [{ titulo: "Hora", valor: (b) => b.etiqueta }, { titulo: "Ganancia USDT", num: true, valor: (b) => conSigno(b.valor) },
+        { titulo: "USDT", num: true, valor: (b) => num(b.ciclo.usdt) }, { titulo: "Spread %", num: true, valor: (b) => num(b.ciclo.spread_pct) }]
+      : [{ titulo: "Día", valor: (b) => b.etiqueta }, { titulo: "Ganancia USDT", num: true, valor: (b) => conSigno(b.valor) },
+        { titulo: "Ganancia Bs", num: true, valor: (b) => conSigno(b.dia.ganancia_bs, 0) }, { titulo: "Ciclos", num: true, valor: (b) => b.dia.ciclos },
+        { titulo: "Volumen USDT", num: true, valor: (b) => num(b.dia.volumen_usdt, 0) }],
+    [...barras].reverse());
+
+    let suma = 0;
+    const acumulada = porCiclo
+      ? ciclos.map((c) => ({ t: c.ts_cierre, v: (suma += c.ganancia_usdt) }))
+      : d.diaria.map((f) => ({ t: partesISO(f.fecha), v: f.acumulada_usdt }));
+    figura("g-acumulada", (lienzo) => G.lineas(lienzo, [{ nombre: "Acumulada", clase: "s1", puntos: acumulada }], {
+      descripcion: "Ganancia acumulada del período en USDT",
+      vacio: "Sin ciclos cerrados en este período",
+      area: true, incluirCero: true,
+      formatoEje: ejeNumero,
+      formatoValor: (v) => `${conSigno(v)} USDT`,
+      formatoTiempo: porCiclo ? soloHora : diaCorto,
+      formatoTiempoLargo: porCiclo ? fechaHora : diaCorto,
+    }), [{ titulo: porCiclo ? "Hora" : "Día", valor: (p) => (porCiclo ? soloHora(p.t) : diaCorto(p.t)) },
+      { titulo: "Acumulada USDT", num: true, valor: (p) => conSigno(p.v) }],
+    [...acumulada].reverse());
+
+    const serie = d.mercado.serie;
+    const rango = serie.length ? serie[serie.length - 1].ts_ms - serie[0].ts_ms : 0;
+    const etiquetaTiempo = rango > 2 * DIA_MS ? diaCorto : soloHora;
+    figura("g-precios", (lienzo) => G.lineas(lienzo, [
+      { nombre: "Comprar", clase: "s1", puntos: serie.map((p) => ({ t: p.ts_ms, v: p.precio_compra })) },
+      { nombre: "Vender", clase: "s2", puntos: serie.map((p) => ({ t: p.ts_ms, v: p.precio_venta })) },
+    ], {
+      descripcion: "Precio para comprar y para vender USDT en Binance P2P, en bolívares",
+      vacio: "Todavía no hay cotizaciones guardadas en este período",
+      etiquetasFinales: true,
+      formatoEje: ejeNumero,
+      formatoValor: (v) => num(v),
+      formatoTiempo: etiquetaTiempo,
+      formatoTiempoLargo: fechaHora,
+    }), [{ titulo: "Fecha", valor: (p) => fechaHora(p.ts_ms) }, { titulo: "Comprar USDT", num: true, valor: (p) => num(p.precio_compra) },
+      { titulo: "Vender USDT", num: true, valor: (p) => num(p.precio_venta) }, { titulo: "Brecha %", num: true, valor: (p) => num(p.spread_pct) }],
+    [...serie].reverse());
+
+    poner("g-spread-sub", `% por cada USDT comprado y vendido, pagando ${rutaTexto(d.config.ruta_por_defecto)}. Línea punteada: tu umbral de alerta.`);
+    figura("g-spread", (lienzo) => G.lineas(lienzo, [
+      { nombre: "neto como anunciante", clase: "s1", puntos: serie.map((p) => ({ t: p.ts_ms, v: p.neto_anunciante_pct })) },
+    ], {
+      descripcion: "Ganancia neta estimada por vuelta como anunciante, en porcentaje",
+      vacio: "Todavía no hay cotizaciones guardadas en este período",
+      umbral: { valor: d.config.spread_minimo_pct, etiqueta: `umbral ${num(d.config.spread_minimo_pct, 1)} %` },
+      incluirCero: true,
+      formatoEje: ejeNumero,
+      formatoValor: (v) => `${conSigno(v)} %`,
+      formatoTiempo: etiquetaTiempo,
+      formatoTiempoLargo: fechaHora,
+      filasExtra: (t) => {
+        const p = serie.find((q) => q.ts_ms === t);
+        return p ? [{ valor: `${num(p.spread_pct)} %`, nombre: "brecha bruta" }] : [];
+      },
+    }), [{ titulo: "Fecha", valor: (p) => fechaHora(p.ts_ms) }, { titulo: "Neto anunciante %", num: true, valor: (p) => conSigno(p.neto_anunciante_pct) },
+      { titulo: "Neto tomador %", num: true, valor: (p) => conSigno(p.neto_tomador_pct) }, { titulo: "Brecha %", num: true, valor: (p) => num(p.spread_pct) }],
+    [...serie].reverse());
+  }
+
+  // ---- tablas ----------------------------------------------------------------
+
+  function selectorRuta(o, rutaDefecto) {
+    const select = el("select", { "aria-label": `Cómo pagaste la orden ${o.numero}` },
+      el("option", { value: "", text: `Por defecto (${rutaTexto(rutaDefecto)})` }),
+      el("option", { value: "BDV", text: "BDV → BDV" }),
+      el("option", { value: "INTERBANCARIO", text: "Interbancario" }));
+    select.value = o.ruta_pago || "";
+    select.addEventListener("change", async () => {
+      select.disabled = true;
+      try {
+        await api(`/api/ordenes/${encodeURIComponent(o.numero)}`, { method: "PATCH", body: JSON.stringify({ ruta_pago: select.value || null }) });
+        cargar(false);
+      } catch (e) {
+        avisos([`No pude guardar el cambio: ${e.message}`]);
+        select.disabled = false;
+      }
+    });
+    return select;
+  }
+
+  async function borrarOrden(numero) {
+    if (!window.confirm("¿Borrar esta orden manual?")) return;
+    try {
+      await api(`/api/ordenes/${encodeURIComponent(numero)}`, { method: "DELETE" });
+      cargar(false);
+    } catch (e) {
+      avisos([`No pude borrar la orden: ${e.message}`]);
+    }
+  }
+
+  function claseEstado(estado) {
+    if (estado === "COMPLETED") return "estado-ok";
+    return estado.startsWith("CANCEL") ? "estado-neutro" : "estado-alerta";
+  }
+
+  function renderOrdenes(d) {
+    poner("c-ordenes", d.ordenes.length ? String(d.ordenes.length) : "");
+    G.tabla($("#p-ordenes"), [
+      { titulo: "Fecha", valor: (o) => fechaHora(o.creada_ms) },
+      { titulo: "Tipo", valor: (o) => el("span", { class: "etiqueta-tipo", text: o.tipo === "COMPRA" ? "Compra" : "Venta" }) },
+      { titulo: "USDT", num: true, valor: (o) => num(o.cantidad) },
+      { titulo: "Precio", num: true, valor: (o) => num(o.precio) },
+      { titulo: "Total Bs", num: true, valor: (o) => num(o.total_bs) },
+      { titulo: "Comisión USDT", num: true, valor: (o) => num(o.comision, 4) },
+      { titulo: "Cómo pagaste", valor: (o) => (o.tipo === "COMPRA" ? selectorRuta(o, d.config.ruta_por_defecto) : "—") },
+      { titulo: "Estado", valor: (o) => el("span", { class: claseEstado(o.estado), text: ESTADOS[o.estado] || o.estado }) },
+      { titulo: "Contraparte", valor: (o) => o.contraparte },
+      { titulo: "Rol", valor: (o) => ({ MAKER: "Anunciante", TAKER: "Tomador" })[o.rol] || "—" },
+      { titulo: "", valor: (o) => (o.origen === "manual"
+        ? el("button", { type: "button", class: "enlace-boton", text: "Borrar", onclick: () => borrarOrden(o.numero) })
+        : o.origen === "demo" ? "demo" : "") },
+    ], d.ordenes, "No hay órdenes en este período.");
+  }
+
+  function renderCiclos(d) {
+    poner("c-ciclos", d.ciclos.length ? String(d.ciclos.length) : "");
+    G.tabla($("#p-ciclos"), [
+      { titulo: "Cerrado", valor: (c) => fechaHora(c.ts_cierre) },
+      { titulo: "Sentido", valor: (c) => (c.sentido.startsWith("COMPRA") ? "Compra → Venta" : "Venta → Compra") },
+      { titulo: "USDT", num: true, valor: (c) => num(c.usdt) },
+      { titulo: "Compra efectiva", num: true, valor: (c) => num(c.precio_compra) },
+      { titulo: "Venta efectiva", num: true, valor: (c) => num(c.precio_venta) },
+      { titulo: "Spread %", num: true, valor: (c) => conSigno(c.spread_pct) },
+      { titulo: "Ganancia USDT", num: true, valor: (c) => conSigno(c.ganancia_usdt, 4) },
+      { titulo: "Ganancia Bs", num: true, valor: (c) => conSigno(c.ganancia_bs) },
+    ], d.ciclos, "Todavía no hay ciclos cerrados en este período: un ciclo se cierra cuando una venta se empareja con una compra.");
+  }
+
+  function renderBanco(d) {
+    const cont = $("#p-banco");
+    const c = d.banco.conciliacion;
+    const pendientes = c.pagos_sin_orden.length + c.alertas.length + (c.por_liberar ? c.por_liberar.length : 0);
+    const contador = $("#c-banco");
+    contador.textContent = pendientes ? String(pendientes) : "";
+    contador.classList.toggle("atencion", pendientes > 0);
+    cont.textContent = "";
+    if (!c.activo) {
+      cont.append(el("p", { class: "nota-tabla", text: "Aún no hay pagos del banco registrados en este período. Activa el reenvío automático de SMS (ver README) o pega un SMS en el formulario de abajo." }));
+      if (!d.config.webhook_configurado) {
+        cont.append(el("p", { class: "nota-tabla", text: "El webhook de SMS está apagado: define banco.webhook_token en config.toml para recibirlos solos." }));
+      }
+      return;
+    }
+    if (c.alertas.length) cont.append(el("ul", { class: "lista-alertas" }, ...c.alertas.map((a) => el("li", { text: a }))));
+    if (c.por_liberar && c.por_liberar.length) {
+      const caja = el("div", { class: "lista-liberar" }, el("h4", { text: `Listas para liberar (${c.por_liberar.length})` }));
+      const lista = el("ul");
+      for (const x of c.por_liberar) {
+        lista.append(el("li", { text: `Orden ${x.orden.numero}: ${num(x.orden.cantidad)} USDT · pago de Bs ${num(x.pago.monto_bs)}`
+          + (x.pago.contraparte ? ` de ${x.pago.contraparte}` : "") + (x.pago.referencia ? ` (Ref ${x.pago.referencia})` : "") }));
+      }
+      caja.append(lista, el("p", { class: "recordatorio", text: "Antes de liberar en Binance: confirma el pago en tu BDVApp y que el titular sea el mismo comprador. La liberación la haces tú en la app de Binance." }));
+      cont.append(caja);
+    }
+    cont.append(el("div", { class: "resumen-banco" },
+      el("span", { class: "estado-ok", text: `${c.conciliados} pagos conciliados con su orden` }),
+      el("span", { class: c.pagos_sin_orden.length ? "estado-alerta" : "estado-neutro", text: `${c.pagos_sin_orden.length} pagos sin orden` }),
+      el("span", { class: c.ordenes_sin_pago.length ? "estado-alerta" : "estado-neutro", text: `${c.ordenes_sin_pago.length} órdenes completadas sin pago registrado` })));
+    const envoltura = el("div", { class: "tabla-envoltura" });
+    cont.append(envoltura);
+    G.tabla(envoltura, [
+      { titulo: "Fecha", valor: (m) => fechaHora(m.ts_ms) },
+      { titulo: "Tipo", valor: (m) => el("span", { class: "etiqueta-tipo", text: m.tipo === "ENTRADA" ? "Recibido" : "Enviado" }) },
+      { titulo: "Monto Bs", num: true, valor: (m) => num(m.monto_bs) },
+      { titulo: "Referencia", valor: (m) => m.referencia },
+      { titulo: "Contraparte", valor: (m) => m.contraparte },
+      { titulo: "Orden", valor: (m) => m.orden_numero },
+      { titulo: "Estado", valor: (m) => (m.orden_numero
+        ? el("span", { class: "estado-ok", text: "Conciliado" })
+        : el("span", { class: "estado-alerta", text: "Sin orden: revísalo" })) },
+    ], d.banco.movimientos);
+  }
+
+  function renderEventos(d) {
+    G.tabla($("#p-eventos"), [
+      { titulo: "Fecha", valor: (e) => fechaHora(e.ts_ms) },
+      { titulo: "Tipo", valor: (e) => el("span", { class: e.nivel === "error" ? "estado-alerta" : e.nivel === "info" ? "estado-neutro" : "estado-ok", text: NIVELES[e.nivel] || e.nivel }) },
+      { titulo: "Mensaje", clase: "texto-largo", valor: (e) => e.mensaje },
+    ], d.eventos, "Sin eventos todavía.");
+  }
+
+  // ---- formularios y controles -----------------------------------------------
+
+  function ahoraLocal() {
+    const ahora = new Date();
+    return new Date(ahora.getTime() - ahora.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+  }
+
+  function iniciarFormularioOrden() {
+    const f = $("#f-orden");
+    const total = () => {
+      const t = Number(f.cantidad.value) * Number(f.precio.value);
+      poner("f-orden-total", t > 0 ? `Total: Bs ${num(t)}` : "Total: —");
+    };
+    const tipo = () => { f.querySelector(".solo-compra").hidden = f.tipo.value !== "COMPRA"; };
+    f.cantidad.addEventListener("input", total);
+    f.precio.addEventListener("input", total);
+    f.tipo.addEventListener("change", tipo);
+    f.closest("details").addEventListener("toggle", () => { if (!f.fecha.value) f.fecha.value = ahoraLocal(); });
+    tipo();
+    f.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const cuerpo = {
+        tipo: f.tipo.value,
+        cantidad: Number(f.cantidad.value),
+        precio: Number(f.precio.value),
+        comision: Number(f.comision.value || 0),
+        ruta_pago: f.tipo.value === "COMPRA" && f.ruta_pago.value ? f.ruta_pago.value : null,
+        fecha_ms: f.fecha.value ? new Date(f.fecha.value).getTime() : null,
+        contraparte: f.contraparte.value || null,
+        nota: f.nota.value || null,
+      };
+      try {
+        const o = await api("/api/ordenes", { method: "POST", body: JSON.stringify(cuerpo) });
+        poner("f-orden-resultado", `Orden guardada (${o.numero}).`);
+        f.cantidad.value = "";
+        f.precio.value = "";
+        f.contraparte.value = "";
+        f.nota.value = "";
+        total();
+        cargar(false);
+      } catch (err) {
+        poner("f-orden-resultado", `No pude guardar la orden: ${err.message}`);
+      }
+    });
+  }
+
+  function describirAviso(a) {
+    return `${a.tipo === "ENTRADA" ? "Pago recibido" : "Pago enviado"} · Bs ${num(a.monto_bs)}` +
+      (a.referencia ? ` · Ref ${a.referencia}` : "") + (a.contraparte ? ` · ${a.contraparte}` : "");
+  }
+
+  function iniciarFormularioBanco() {
+    const f = $("#f-banco");
+    $("#f-banco-probar").addEventListener("click", async () => {
+      if (f.texto.value.trim().length < 3) return;
+      try {
+        const r = await api("/api/banco/probar", { method: "POST", body: JSON.stringify({ texto: f.texto.value }) });
+        poner("f-banco-resultado", r.ok ? `Lo leo así: ${describirAviso(r.aviso)}` : "No reconozco este texto como un aviso de pago. Ajusta los patrones en [banco] de config.toml.");
+      } catch (err) {
+        poner("f-banco-resultado", `Error: ${err.message}`);
+      }
+    });
+    f.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      if (f.texto.value.trim().length < 3) return;
+      try {
+        const r = await api("/api/banco/texto", { method: "POST", body: JSON.stringify({ texto: f.texto.value }) });
+        if (!r.ok) poner("f-banco-resultado", r.motivo);
+        else if (r.duplicado) poner("f-banco-resultado", "Ese pago ya estaba registrado.");
+        else {
+          poner("f-banco-resultado", `${describirAviso(r.aviso)}\n` + (r.orden ? `Conciliado con la orden ${r.orden.numero}.` : "Guardado; todavía sin orden asociada."));
+          f.texto.value = "";
+        }
+        cargar(false);
+      } catch (err) {
+        poner("f-banco-resultado", `Error: ${err.message}`);
+      }
+    });
+  }
+
+  function iniciarControles() {
+    const botones = document.querySelectorAll(".segmentado button");
+    const marcar = () => botones.forEach((b) => b.setAttribute("aria-checked", String(b.dataset.periodo === periodo)));
+    botones.forEach((b) => b.addEventListener("click", () => {
+      periodo = b.dataset.periodo;
+      guardar("periodo", periodo);
+      marcar();
+      cargar(true);
+    }));
+    marcar();
+
+    $("#btn-sync").addEventListener("click", async (e) => {
+      const boton = e.currentTarget;
+      boton.disabled = true;
+      boton.textContent = "Sincronizando…";
+      try {
+        const r = await api("/api/sincronizar", { method: "POST" });
+        avisos(r.ok ? [] : [r.error]);
+        await cargar(false);
+      } catch (err) {
+        avisos([`No pude sincronizar: ${err.message}`]);
+      } finally {
+        boton.disabled = false;
+        boton.textContent = "Sincronizar con Binance";
+      }
+    });
+
+    $("#an-reposicionar").addEventListener("click", async (e) => {
+      const boton = e.currentTarget;
+      boton.disabled = true;
+      const previo = boton.textContent;
+      boton.textContent = "Calculando…";
+      try {
+        await api("/api/anuncios/reposicionar", { method: "POST" });
+        await cargar(false);
+      } catch (err) {
+        avisos([`No pude reposicionar los anuncios: ${err.message}`]);
+      } finally {
+        boton.disabled = false;
+        boton.textContent = previo;
+      }
+    });
+
+    $("#tema").addEventListener("click", () => {
+      const raiz = document.documentElement;
+      const oscuro = raiz.dataset.theme ? raiz.dataset.theme === "dark" : window.matchMedia("(prefers-color-scheme: dark)").matches;
+      raiz.dataset.theme = oscuro ? "light" : "dark";
+      guardar("tema", raiz.dataset.theme);
+    });
+
+    const pestanas = [...document.querySelectorAll('[role="tab"]')];
+    const activar = (pestana) => {
+      for (const p of pestanas) {
+        const activa = p === pestana;
+        p.setAttribute("aria-selected", String(activa));
+        p.tabIndex = activa ? 0 : -1;
+        document.getElementById(p.getAttribute("aria-controls")).hidden = !activa;
+      }
+    };
+    pestanas.forEach((p, i) => {
+      p.addEventListener("click", () => activar(p));
+      p.addEventListener("keydown", (e) => {
+        const salto = { ArrowRight: 1, ArrowLeft: -1 }[e.key];
+        if (!salto) return;
+        const siguiente = pestanas[(i + salto + pestanas.length) % pestanas.length];
+        activar(siguiente);
+        siguiente.focus();
+      });
+    });
+    activar(pestanas[0]);
+
+    document.querySelectorAll(".ver-tabla").forEach((boton) => boton.addEventListener("click", () => {
+      const tablaAlt = boton.closest("figure").querySelector(".tabla-alt");
+      tablaAlt.hidden = !tablaAlt.hidden;
+      boton.setAttribute("aria-expanded", String(!tablaAlt.hidden));
+      boton.textContent = tablaAlt.hidden ? "Ver tabla" : "Ocultar tabla";
+    }));
+
+    // redibuja los gráficos cuando cambia el ancho (rotar el teléfono, cambiar ventana)
+    let pendiente = 0;
+    let anchoPrevio = 0;
+    new ResizeObserver((entradas) => {
+      const ancho = Math.round(entradas[0].contentRect.width);
+      if (ancho === anchoPrevio) return;
+      anchoPrevio = ancho;
+      cancelAnimationFrame(pendiente);
+      pendiente = requestAnimationFrame(() => Object.values(dibujos).forEach((dibujar) => dibujar()));
+    }).observe($(".graficos"));
+  }
+
+  iniciarControles();
+  iniciarFormularioOrden();
+  iniciarFormularioBanco();
+  cargar(true);
+  setInterval(() => { if (!document.hidden) cargar(false); }, 30000);
+})();
