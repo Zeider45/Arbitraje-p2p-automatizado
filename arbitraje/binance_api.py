@@ -124,19 +124,20 @@ def metodo_de_pago(o: dict) -> str | None:
     return None
 
 
-def ruta_desde_metodo(metodo: str | None) -> str | None:
+def ruta_desde_metodo(metodo: str | None, mi_banco: str = "BancoDeVenezuela") -> str | None:
     """BDV si pagaste a una cuenta del Banco de Venezuela, interbancario si fue a otro banco."""
     if not metodo:
         return None
     normal = re.sub(r"[^a-z]", "", metodo.lower())
-    if "bancodevenezuela" in normal or normal == "bdv":
+    mio = re.sub(r"[^a-z]", "", mi_banco.lower())
+    if normal == mio or (mio == "bancodevenezuela" and ("bancodevenezuela" in normal or normal == "bdv")):
         return RUTA_BDV
     if normal in ("bank", "banktransfer", "specificbank", "transferenciabancaria"):
         return None  # genérico: no dice a qué banco
     return RUTA_INTERBANCARIA
 
 
-def convertir_orden(o: dict) -> dict:
+def convertir_orden(o: dict, mi_banco: str = "BancoDeVenezuela") -> dict:
     tipo = "COMPRA" if o["tradeType"] == "BUY" else "VENTA"
     metodo = metodo_de_pago(o)
     return {
@@ -153,7 +154,7 @@ def convertir_orden(o: dict) -> dict:
         "rol": o.get("advertisementRole"),
         "contraparte": o.get("counterPartNickName"),
         "metodo_pago": metodo,
-        "ruta_pago": ruta_desde_metodo(metodo) if tipo == "COMPRA" else None,
+        "ruta_pago": ruta_desde_metodo(metodo, mi_banco) if tipo == "COMPRA" else None,
         "creada_ms": int(o["createTime"]),
         "crudo": json.dumps(o, ensure_ascii=False),
     }
@@ -175,7 +176,7 @@ async def sincronizar(db: BaseDatos, cfg: Config, cliente: ClienteBinance, ahora
                 if (o.get("asset") or cfg.mercado.activo) == cfg.mercado.activo and (
                     o.get("fiat") or cfg.mercado.fiat
                 ) == cfg.mercado.fiat:
-                    filas.append(convertir_orden(o))
+                    filas.append(convertir_orden(o, cfg.mercado.mi_banco))
     resultado = db.guardar_ordenes(filas)
     db.escribir_estado("sync_hasta_ms", hasta)
     return resultado

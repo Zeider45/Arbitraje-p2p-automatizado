@@ -23,7 +23,7 @@ from pydantic import BaseModel, Field
 
 from . import (
     __version__, anuncios as mod_anuncios, banco, ganancias, mercado, pagos as mod_pagos, sesion as mod_sesion,
-    simulador as mod_simulador,
+    simulador as mod_simulador, bancos as mod_bancos, terminos as mod_terminos,
 )
 from .config import Config
 from .db import BaseDatos
@@ -101,6 +101,10 @@ class Simulacion(BaseModel):
     reinvertir: bool = True
     precio_compra: float | None = Field(default=None, gt=0)  # lo que pagas por USDT; vacío = mercado actual
     precio_venta: float | None = Field(default=None, gt=0)   # lo que recibes por USDT; vacío = mercado actual
+
+
+class MiBanco(BaseModel):
+    banco: str
 
 
 class ReiniciarSimulacion(BaseModel):
@@ -244,6 +248,7 @@ def datos_panel(cfg: Config, db: BaseDatos, motor: Motor, periodo: str) -> dict:
         "banco": {"movimientos": list(reversed(movimientos))[:FILAS_TABLA], "conciliacion": conciliacion},
         "eventos": db.eventos(60),
         "decisiones": db.eventos(40, "decision"),
+        "bancos": motor.analisis_bancos(),
     }
 
 
@@ -264,7 +269,8 @@ def guia_manual(cfg: Config, plan) -> dict:
             "usdt": monto(propio), "min_bs": a.min_bs, "max_bs": a.max_bs,
             "metodos": metodos, "tiempo_pago_min": a.pay_time_limit,
         }
-    return {"activo": cfg.mercado.activo, "fiat": cfg.mercado.fiat, "lados": lados}
+    return {"activo": cfg.mercado.activo, "fiat": cfg.mercado.fiat, "lados": lados,
+            "textos": mod_terminos.textos(a, cfg.mercado.mi_banco)}
 
 
 def datos_anuncios(cfg: Config, motor: Motor) -> dict:
@@ -339,6 +345,7 @@ def crear_app(cfg: Config, iniciar_tareas: bool = True, con_simulacion: bool = T
     motor = Motor(cfg, db)
     if cfg.demo and motor.simulador is not None:
         motor.ultima_cotizacion = motor.simulador.cotizar()  # primer plan visible al abrir el panel
+        motor.bancos_cotizaciones = mod_bancos.simuladas(db.ultima_cotizacion(), cfg.mercado.bancos_comparar)
 
     sim_app = None
     if con_simulacion and not cfg.demo and cfg.panel.simulacion:
@@ -550,6 +557,13 @@ def crear_app(cfg: Config, iniciar_tareas: bool = True, con_simulacion: bool = T
             db.guardar_cotizacion(motor.ultima_cotizacion.como_fila())
         db.registrar_evento("info", f"Simulación reiniciada con capital {datos.capital:g} USDT.")
         return {"ok": True, "capital": datos.capital, "con_ejemplo": datos.con_ejemplo}
+
+    @app.post("/api/bancos/mi-banco")
+    async def elegir_mi_banco(datos: MiBanco):
+        if datos.banco not in mod_bancos.BANCOS:
+            raise HTTPException(422, "Banco desconocido.")
+        texto = await motor.cambiar_banco(datos.banco)
+        return {**motor.analisis_bancos(), "estrategia": texto}
 
     @app.post("/api/sesion/descartar")
     def descartar_sesion():

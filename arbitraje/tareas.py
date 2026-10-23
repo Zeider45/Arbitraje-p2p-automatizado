@@ -9,8 +9,9 @@ from datetime import datetime, timedelta
 import httpx
 
 from . import anuncios as mod_anuncios
+from . import bancos as mod_bancos
 from . import banco, binance_api, ganancias, identidad as mod_identidad, mercado, pagos as mod_pagos
-from .config import Config
+from .config import RUTA_BDV, RUTA_INTERBANCARIA, Config
 from .db import BaseDatos
 from .notificaciones import Avisos, Telegram, WhatsApp
 from .utilidades import DIA_MS, MINUTO_MS, ahora_ms, formato_numero, rango_periodo
@@ -57,12 +58,16 @@ class Motor:
         }
         self.anuncios_propios: set[str] = set()  # advNo de tus anuncios, para no competir contra ti
         self.ultima_cotizacion: mercado.Cotizacion | None = None
+        self.bancos_cotizaciones: list = []
+        self.bancos_ts: int | None = None
         self._ultima_alerta: dict[str, int] = {}
         self._reposicion_previa: dict[str, float] = {}
         self._ultima_republicacion: dict[str, int] = {}
         self._tareas: list[asyncio.Task] = []
         self._candado_sync = asyncio.Lock()
         self._candado_anuncios = asyncio.Lock()
+        if db.leer_estado("mi_banco") in mod_bancos.BANCOS:
+            self.aplicar_banco(db.leer_estado("mi_banco"))
 
     # ---- ciclo de vida -------------------------------------------------------------
 
@@ -73,6 +78,7 @@ class Motor:
         if self.binance:
             minutos = 1.0 if self.cfg.pagos.automatico else self.cfg.binance.intervalo_sync_min
             self._tareas.append(asyncio.create_task(self._repetir(minutos * 60, self.sincronizar)))
+        self._tareas.append(asyncio.create_task(self._repetir(self.cfg.mercado.intervalo_bancos_seg, self.actualizar_bancos)))
         if self.cfg.anuncios.automatico:
             self._tareas.append(asyncio.create_task(self._repetir(self.cfg.anuncios.intervalo_seg, self.reposicionar)))
         if self.avisos.activo and self.cfg.alertas.resumen_diario_hora:
@@ -126,6 +132,63 @@ class Motor:
         self._exito("mercado", aviso=aviso)
         await self._revisar_oportunidad(cotizacion)
         return cotizacion
+
+    async def actualizar_bancos(self) -> None:
+        """Compara el mercado banco por banco (para la sección "Comparar bancos")."""
+        lista = [b for b in self.cfg.mercado.bancos_comparar if b]
+        try:
+            if self.simulador and not self.cfg.precios_reales:
+                self.bancos_cotizaciones = mod_bancos.simuladas(self.db.ultima_cotizacion(), lista)
+            else:
+                self.bancos_cotizaciones = await mod_bancos.consultar(self.http, self.cfg, lista)
+        except (httpx.HTTPError, mercado.ErrorMercado) as e:
+            log.warning("No pude comparar los bancos: %s", _describir(e))
+            return
+        self.bancos_ts = ahora_ms()
+
+    def aplicar_banco(self, banco: str) -> None:
+        """Pone TODA la estrategia a trabajar con un banco: qué anuncios busca, cómo calcula costos y qué banco usa por defecto."""
+        c = self.cfg
+        ruta = RUTA_INTERBANCARIA if banco == "PagoMovil" else RUTA_BDV  # operar con tu banco = pagos "mismo banco"
+        c.mercado.mi_banco = banco
+        c.mercado.metodos_pago = [banco]
+        c.anuncios.metodos_compra = [banco]
+        c.anuncios.ruta = ruta
+        c.banco.ruta_por_defecto = ruta
+        c.pagos.banco_por_defecto = mod_bancos.CODIGOS.get(banco, c.pagos.banco_por_defecto)
+        self._reposicion_previa.clear()
+
+    async def cambiar_banco(self, banco: str) -> str:
+        """Cambia el banco de trabajo, vuelve a leer el mercado con ese banco y deja constancia de lo que decide."""
+        self.db.escribir_estado("mi_banco", banco)
+        self.aplicar_banco(banco)
+        nombre = mod_bancos.BANCOS.get(banco, banco)
+        await self.actualizar_mercado()
+        cot = self.ultima_cotizacion
+        if cot is None or not cot.precio_compra or not cot.precio_venta:
+            texto = (f"Ahora opero con {nombre}: busco anuncios solo con ese banco. "
+                     "Todavía no hay anuncios suficientes para calcular un margen.")
+        else:
+            plan = mod_anuncios.planear(cot, self.cfg.costos, self.cfg.anuncios)
+            minimo = self.cfg.anuncios.margen_minimo_pct
+            texto = (f"Ahora opero con {nombre}: busco anuncios solo con ese banco y calculo los pagos como "
+                     + ("entre cuentas del mismo banco (sin costo). " if banco != "PagoMovil" else "Pago Móvil (con costo interbancario). ")
+                     + f"Margen por vuelta ahora: {formato_numero(plan.margen_pct)} % (tu mínimo es {minimo:g} %). "
+                     + ("Conviene publicar." if plan.margen_pct >= minimo else "Todavía no conviene: espero a que se abra la brecha."))
+        self.decidir(texto)
+        if self.cfg.anuncios.automatico:
+            await self.reposicionar()
+        return texto
+
+    def mi_banco(self) -> str:
+        elegido = self.db.leer_estado("mi_banco")
+        return elegido if elegido in mod_bancos.BANCOS else self.cfg.mercado.mi_banco
+
+    def analisis_bancos(self) -> dict:
+        datos = mod_bancos.analizar(self.bancos_cotizaciones, self.cfg.costos, self.mi_banco(), self.cfg.costos.tick_bs)
+        datos["actualizado_ms"] = self.bancos_ts
+        datos["disponibles"] = mod_bancos.BANCOS
+        return datos
 
     async def _revisar_oportunidad(self, c: mercado.Cotizacion) -> None:
         if c.precio_compra is None or c.precio_venta is None:

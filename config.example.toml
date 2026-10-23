@@ -33,6 +33,8 @@ min_tasa_completado = 90.0     # % mínimo de órdenes completadas del anunciant
 solo_comerciantes = false
 ignorar_apodos = []            # tus propios apodos u otros que quieras excluir
 intervalo_seg = 60.0           # cada cuánto consultar precios (mínimo 15 s)
+mi_banco = "BancoDeVenezuela"  # tu banco (se puede cambiar en el panel, sección "Comparar bancos")
+intervalo_bancos_seg = 300.0   # cada cuánto comparar los bancos (mínimo 120 s)
 
 [costos]
 # Comisiones y costos con los que se calcula la ganancia neta.
@@ -56,6 +58,10 @@ intervalo_seg = 45.0
 reponer_segundos = 0.0           # republica cada N s aunque el precio no cambie (0 = no)
 lados = ["COMPRA", "VENTA"]      # qué anuncios gestiona
 ruta = "BDV"                     # ruta bancaria para calcular el margen del anuncio
+# Textos para pegar al crear tus anuncios a mano (vacío = los de por defecto). Usa {banco} y {minutos}.
+terminos_compra = ""
+terminos_venta = ""
+respuesta_automatica = ""
 # Para modo real necesitas tener ya creados en Binance tus anuncios de compra/venta;
 # el bot solo les mueve el precio (no crea desde cero, para no publicar algo mal por error).
 

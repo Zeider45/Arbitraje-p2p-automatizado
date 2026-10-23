@@ -49,6 +49,11 @@ class Mercado:
     solo_comerciantes: bool = False
     ignorar_apodos: list[str] = field(default_factory=list)
     intervalo_seg: float = 60.0
+    mi_banco: str = "BancoDeVenezuela"   # tu banco: pagar a alguien del mismo banco no cuesta
+    bancos_comparar: list[str] = field(default_factory=lambda: [
+        "BancoDeVenezuela", "Banesco", "Mercantil", "Provincial", "BNCBancoNacional", "Bancamiga",
+        "Bancaribe", "Banplus", "BancoDelTesoro", "BancoPlaza", "BFC", "PagoMovil"])
+    intervalo_bancos_seg: float = 300.0  # cada cuánto comparar los bancos (mínimo 120 s)
 
 
 @dataclass
@@ -85,6 +90,9 @@ class Anuncios:
     pay_ids_venta: list[int] = field(default_factory=list)   # payId de tus métodos (anuncios de VENTA)
     metodos_compra: list[str] = field(default_factory=lambda: ["BancoDeVenezuela", "PagoMovil"])
     ruta: str = "BDV"                 # ruta bancaria para calcular el margen del anuncio
+    terminos_compra: str = ""         # texto de términos de tu anuncio de compra (vacío = el de por defecto)
+    terminos_venta: str = ""          # texto de términos de tu anuncio de venta (vacío = el de por defecto)
+    respuesta_automatica: str = ""    # respuesta automática del chat (vacío = la de por defecto)
 
     @property
     def en_real(self) -> bool:
@@ -259,4 +267,5 @@ def validar(cfg: Config) -> None:
     cfg.binance.dias_historial = min(max(cfg.binance.dias_historial, 1), 180)
     # no saturar a Binance: mínimo 15 s entre consultas de mercado y 1 min entre sincronizaciones
     cfg.mercado.intervalo_seg = max(cfg.mercado.intervalo_seg, 15.0)
+    cfg.mercado.intervalo_bancos_seg = max(cfg.mercado.intervalo_bancos_seg, 120.0)
     cfg.binance.intervalo_sync_min = max(cfg.binance.intervalo_sync_min, 1.0)

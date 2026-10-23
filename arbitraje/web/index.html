@@ -100,7 +100,7 @@
     </div>
   </details>
 
-  <section class="tarjeta sesion" id="sesion" aria-labelledby="t-sesion">
+  <section class="tarjeta sesion mitad" id="sesion" aria-labelledby="t-sesion">
     <header class="cabecera">
       <div>
         <h2 id="t-sesion">Sesión de operación</h2>
@@ -115,7 +115,7 @@
     </details>
   </section>
 
-  <section class="tarjeta decisiones" aria-labelledby="t-decisiones">
+  <section class="tarjeta decisiones mitad" aria-labelledby="t-decisiones">
     <header class="cabecera">
       <div>
         <h2 id="t-decisiones">Decisiones automáticas</h2>
@@ -151,18 +151,18 @@
         </div>
       </div>
       <div class="netos">
-        <div class="neto"><span class="etiqueta">Neto como anunciante, pagando BDV→BDV</span><span class="cifra-media" id="m-neto-bdv">—</span></div>
+        <div class="neto"><span class="etiqueta">Neto como anunciante, pagando a tu mismo banco</span><span class="cifra-media" id="m-neto-bdv">—</span></div>
         <div class="neto"><span class="etiqueta">Neto como anunciante, pagando interbancario</span><span class="cifra-media" id="m-neto-inter">—</span></div>
         <div class="neto"><span class="etiqueta">Neto como tomador (compras y vendes al instante)</span><span class="cifra-media" id="m-neto-tomador">—</span></div>
       </div>
       <p class="sugerencia" id="m-sugerencia"></p>
-      <details class="anuncios">
-        <summary>Mejores anuncios ahora</summary>
+      <div class="mejores">
+        <h3 class="titulo-bloque">Mejores opciones ahora</h3>
         <div class="dos-tablas">
           <div><h3>Para comprar USDT</h3><div class="tabla-envoltura" id="m-anuncios-compra"></div></div>
           <div><h3>Para vender USDT</h3><div class="tabla-envoltura" id="m-anuncios-venta"></div></div>
         </div>
-      </details>
+      </div>
     </article>
 
     <details class="seccion"><summary>Tu operación</summary>
@@ -182,7 +182,7 @@
         <p class="sub" id="o-inter-det">—</p>
       </div>
       <dl class="datos">
-        <div><dt>Pagos BDV→BDV hoy</dt><dd id="o-bdv">—</dd></div>
+        <div><dt>Pagos a tu mismo banco hoy</dt><dd id="o-bdv">—</dd></div>
         <div><dt>Posición abierta</dt><dd id="o-posicion">—</dd></div>
         <div><dt>Si la cierras ahora</dt><dd id="o-no-realizado">—</dd></div>
         <div><dt>Días con ganancia</dt><dd id="o-dias">—</dd></div>
@@ -191,6 +191,23 @@
       </dl>
     </article>
     </details>
+  </section>
+
+  <section class="bancos" id="bancos" aria-labelledby="t-bancos">
+    <header class="cabecera">
+      <div>
+        <h2 id="t-bancos">Comparar bancos</h2>
+        <p class="sub">En qué banco conviene operar y dónde rinde más, según el banco que tú tengas. Al elegir uno, el bot busca anuncios y toma las decisiones solo para ese banco.</p>
+      </div>
+      <label class="mi-banco">Opero con
+        <select id="mi-banco"></select>
+      </label>
+    </header>
+    <p class="reco-bancos" id="bancos-reco"></p>
+    <div class="tabla-envoltura" id="bancos-tabla"></div>
+    <h3 class="titulo-bloque">Mejores combinaciones (comprar con un banco, vender con otro)</h3>
+    <div class="tabla-envoltura" id="bancos-combos"></div>
+    <p class="sub" id="bancos-nota"></p>
   </section>
 
   <details class="seccion"><summary>Automatización de anuncios</summary>
@@ -240,10 +257,11 @@
       <li>En Binance abre <strong>P2P → Publicar anuncio</strong> (Post Ad).</li>
       <li>Elige <strong>Comprar</strong> para el anuncio de compra, o <strong>Vender</strong> para el de venta, con <strong id="gm-par">USDT / VES</strong>.</li>
       <li>Pon <strong>precio fijo</strong> con el valor de abajo, la cantidad en USDT y los límites por orden en Bs.</li>
-      <li>Marca los métodos de pago indicados y el tiempo límite de pago.</li>
+      <li>Marca el método de pago indicado y el tiempo límite, y pega los <strong>términos</strong> y la <strong>respuesta automática</strong> de más abajo.</li>
       <li>Publícalo. Cuando el sistema te avise, entra a <strong>P2P → Mis anuncios → Editar</strong> y cambia solo el precio.</li>
     </ol>
     <div class="an-grid" id="gm-lados"></div>
+    <div class="textos-anuncio" id="gm-textos"></div>
     <p class="sub" id="gm-nota"></p>
   </section>
 
@@ -266,7 +284,7 @@
           <select name="rol"><option value="anunciante">Anunciante (publico mis anuncios)</option><option value="tomador">Tomador (acepto anuncios)</option></select>
         </label>
         <label>Ruta de pago
-          <select name="ruta"><option value="BDV">BDV → BDV</option><option value="INTERBANCARIO">Interbancario</option></select>
+          <select name="ruta"><option value="BDV">Mismo banco</option><option value="INTERBANCARIO">Interbancario</option></select>
         </label>
         <label>Precio de compra (Bs/USDT)<input name="precio_compra" type="number" step="0.01" min="0.01" placeholder="mercado"></label>
         <label>Precio de venta (Bs/USDT)<input name="precio_venta" type="number" step="0.01" min="0.01" placeholder="mercado"></label>
@@ -377,7 +395,7 @@
           <label class="solo-compra">Cómo pagaste
             <select name="ruta_pago">
               <option value="">Según configuración</option>
-              <option value="BDV">BDV → BDV</option>
+              <option value="BDV">Mismo banco</option>
               <option value="INTERBANCARIO">Interbancario</option>
             </select>
           </label>

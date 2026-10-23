@@ -84,7 +84,7 @@
     return n;
   }
   function poner(id, texto) { const n = document.getElementById(id); if (n) n.textContent = texto; }
-  const rutaTexto = (ruta) => (ruta === "BDV" ? "BDV → BDV" : "interbancario");
+  const rutaTexto = (ruta) => (ruta === "BDV" ? "mismo banco" : "interbancario");
 
   function badgeVeredicto(v) {
     const m = VEREDICTO[(v && v.nivel) || "sin_datos"] || VEREDICTO.sin_datos;
@@ -128,6 +128,7 @@
     renderDecisiones(d);
     renderMercado(d);
     renderOperacion(d);
+    renderBancos(d);
     renderAnuncios(d);
     renderGraficos(d);
     renderOrdenes(d);
@@ -390,15 +391,58 @@
     if (valor != null && destacar(valor)) n.append(el("span", { class: "marca-umbral estado-ok", text: texto }));
   }
 
+  const METODO_CORTO = { BancoDeVenezuela: "BDV", PagoMovil: "Pago Móvil", BNCBancoNacional: "BNC", BancoDelTesoro: "Tesoro", BancoPlaza: "Plaza" };
+
   function tablaAnuncios(selector, anuncios) {
     G.tabla($(selector), [
       { titulo: "Precio", num: true, valor: (a) => num(a.precio) },
       { titulo: "USDT", num: true, valor: (a) => num(a.disponible, 0) },
       { titulo: "Límites Bs", num: true, valor: (a) => `${compacto(a.min_bs)}–${compacto(a.max_bs)}` },
-      { titulo: "Anunciante", valor: (a) => a.anunciante },
-      { titulo: "Órdenes/mes", num: true, valor: (a) => num(a.ordenes_mes, 0) },
-      { titulo: "Completadas", num: true, valor: (a) => `${num(a.tasa_completado * 100, 1)} %` },
+      { titulo: "Pago", valor: (a) => (a.metodos || []).map((m) => METODO_CORTO[m] || m).join(" · ") },
+      { titulo: "Anunciante", valor: (a) => el("span", {}, a.anunciante, el("span", { class: "etiqueta-chica", text: ` · ${num(a.ordenes_mes, 0)} órd. · ${num(a.tasa_completado * 100, 0)} %` })) },
     ], anuncios || [], "Sin detalle de anuncios todavía.");
+  }
+
+  // ---- comparar bancos --------------------------------------------------------
+
+  let selectorBancos = false;
+
+  function renderBancos(d) {
+    const b = d.bancos;
+    if (!b) return;
+    const sel = $("#mi-banco");
+    if (!selectorBancos && b.disponibles) {
+      for (const [id, nombre] of Object.entries(b.disponibles).filter(([id]) => id !== "PagoMovil")) sel.append(el("option", { value: id, text: nombre }));
+      sel.addEventListener("change", async () => {
+        try { const r = await api("/api/bancos/mi-banco", { method: "POST", body: JSON.stringify({ banco: sel.value }) }); avisos([r.estrategia]); cargar(false); }
+        catch (err) { avisos([`No pude cambiar tu banco: ${err.message}`]); }
+      });
+      selectorBancos = true;
+    }
+    sel.value = b.mi_banco;
+    poner("bancos-reco", b.recomendacion || "");
+    const mejor = b.bancos.length ? Math.max(...b.bancos.map((f) => f.neto_pct)) : null;
+    const rutaBadge = (r) => el("span", { class: r === "BDV" ? "estado-ok" : "estado-neutro", text: r === "BDV" ? "Mismo banco" : "Interbancario" });
+    G.tabla($("#bancos-tabla"), [
+      { titulo: "Banco", valor: (f) => el("span", {}, el("strong", { text: f.nombre }), f.es_tu_banco ? el("span", { class: "etiqueta-chica", text: " · tu banco" }) : null) },
+      { titulo: "Compras a", num: true, valor: (f) => num(f.precio_compra) },
+      { titulo: "Vendes a", num: true, valor: (f) => num(f.precio_venta) },
+      { titulo: "Brecha", num: true, valor: (f) => `${num(f.spread_pct, 2)} %` },
+      { titulo: "Neto por vuelta", num: true, valor: (f) => el("strong", { class: f.neto_pct === mejor ? "mejor" : f.neto_pct < 0 ? "neg" : "", text: `${conSigno(f.neto_pct, 2)} %` }) },
+      { titulo: "Pagas con", valor: (f) => rutaBadge(f.ruta) },
+      { titulo: "Anuncios", num: true, valor: (f) => f.poca_liquidez ? el("span", { class: "estado-alerta", title: "Pocos anuncios: el precio puede no ser real", text: `${f.anuncios_compra}/${f.anuncios_venta}` }) : `${f.anuncios_compra}/${f.anuncios_venta}` },
+      { titulo: "Liquidez USDT", num: true, valor: (f) => compacto(f.liquidez_usdt) },
+    ], b.bancos, "Todavía no hay datos de los bancos (se consultan cada pocos minutos).");
+    G.tabla($("#bancos-combos"), [
+      { titulo: "Compras con", valor: (c) => c.compra_nombre },
+      { titulo: "A", num: true, valor: (c) => num(c.precio_compra) },
+      { titulo: "Vendes con", valor: (c) => c.venta_nombre },
+      { titulo: "A", num: true, valor: (c) => num(c.precio_venta) },
+      { titulo: "Neto por vuelta", num: true, valor: (c) => el("strong", { text: `${conSigno(c.neto_pct, 2)} %` }) },
+      { titulo: "Pagas con", valor: (c) => rutaBadge(c.ruta) },
+    ], b.combinaciones, "Sin datos todavía.");
+    poner("bancos-nota", `Calculado como anunciante, con tus costos y pagando desde ${b.mi_banco_nombre}. ` +
+      (b.actualizado_ms ? `Actualizado ${hace(b.actualizado_ms)}.` : ""));
   }
 
   // ---- tu operación ----------------------------------------------------------
@@ -523,6 +567,21 @@
         onclick: (e) => copiar(String(v.precio), e.currentTarget) }));
       cont.append(caja);
     }
+    const textos = $("#gm-textos");
+    textos.textContent = "";
+    const t = g.textos;
+    if (t) {
+      const bloque = (titulo, cuerpo) => el("div", { class: "texto-anuncio" },
+        el("div", { class: "texto-cabecera" }, el("h3", { text: titulo }),
+          el("button", { type: "button", class: "boton secundario", text: "Copiar", onclick: (e) => copiar(cuerpo, e.currentTarget) })),
+        el("pre", { text: cuerpo }));
+      textos.append(
+        bloque("Términos del anuncio de compra (titular, método de pago, cancelación)", t.compra),
+        bloque("Términos del anuncio de venta (titular, método de pago, cancelación)", t.venta),
+        bloque("Respuesta automática del chat (para ambos)", t.respuesta),
+        el("div", { class: "texto-anuncio" }, el("h3", { text: "Condiciones de la contraparte (sugeridas)" }),
+          el("ul", { class: "pasos" }, ...t.condiciones.map((c) => el("li", { text: c })))));
+    }
     poner("gm-nota", "El precio se actualiza solo con el mercado; esta tarjeta siempre muestra el valor más reciente.");
   }
 
@@ -628,7 +687,7 @@
   function selectorRuta(o, rutaDefecto) {
     const select = el("select", { "aria-label": `Cómo pagaste la orden ${o.numero}` },
       el("option", { value: "", text: `Por defecto (${rutaTexto(rutaDefecto)})` }),
-      el("option", { value: "BDV", text: "BDV → BDV" }),
+      el("option", { value: "BDV", text: "Mismo banco" }),
       el("option", { value: "INTERBANCARIO", text: "Interbancario" }));
     select.value = o.ruta_pago || "";
     select.addEventListener("change", async () => {

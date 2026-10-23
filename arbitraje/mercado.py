@@ -232,8 +232,8 @@ async def consultar(http: httpx.AsyncClient, cfg: Config, propios: frozenset[str
         **calcular_spreads(precio_compra, precio_venta, cfg.costos, cfg.banco.ruta_por_defecto),
         anuncios_compra=len(compra),
         anuncios_venta=len(venta),
-        mejores_compra=compra[:5],
-        mejores_venta=venta[:5],
+        mejores_compra=compra[:8],
+        mejores_venta=venta[:8],
     )
 
 
