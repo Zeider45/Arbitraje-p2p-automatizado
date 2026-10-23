@@ -397,6 +397,11 @@ class BaseDatos:
             )
         return self.sesion(sesion_id)
 
+    def descartar_sesion(self, sesion_id: int) -> bool:
+        """Elimina una sesión abierta sin dejar rastro en el historial (para pruebas). No toca las órdenes."""
+        with self.conexion() as c:
+            return c.execute("DELETE FROM sesiones WHERE id = ? AND estado = 'abierta'", (sesion_id,)).rowcount > 0
+
     def vaciar(self) -> None:
         """Borra TODO el contenido (solo para la base de la simulación)."""
         with self.conexion() as c:

@@ -256,9 +256,8 @@ empiezas y en qué moneda (**bolívares o USDT**). A partir de ahí:
   margen neto por vuelta (con tu umbral). Todos tienen tooltip, teclado y "Ver tabla".
 - **Tablas**: órdenes (con la ruta de pago editable), ciclos, banco (conciliación y
   **"listas para liberar"**) y eventos. Exportables a CSV.
-- **Preparar pago para la BDVApp**: eliges la orden de compra por pagar (prellena el
-  monto), pones los datos del vendedor (o pegas su bloque de la orden) y el panel arma
-  el texto para **"Pegar Datos"** y te lo manda por Telegram. Tú pagas en la app.
+- **Pagos automáticos**: cuando aparece una compra por pagar, el sistema arma el bloque de “Pegar Datos”
+  con los datos guardados de la contraparte y te lo manda por Telegram. Tú pagas en tu BDVApp.
 - **Contrapartes**: guarda la identidad verificada (nombre, cédula, teléfonos) de cada
   apodo de Binance con el que operas. El panel la usa para verificar que el banco
   coincida antes de pagar y antes de liberar.

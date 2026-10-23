@@ -551,6 +551,15 @@ def crear_app(cfg: Config, iniciar_tareas: bool = True, con_simulacion: bool = T
         db.registrar_evento("info", f"Simulación reiniciada con capital {datos.capital:g} USDT.")
         return {"ok": True, "capital": datos.capital, "con_ejemplo": datos.con_ejemplo}
 
+    @app.post("/api/sesion/descartar")
+    def descartar_sesion():
+        """Borra la sesión abierta sin guardarla en el historial (útil para una sesión de prueba)."""
+        abierta = db.sesion_abierta()
+        if not abierta or not db.descartar_sesion(abierta["id"]):
+            raise HTTPException(404, "No hay ninguna sesión abierta.")
+        db.registrar_evento("info", f"Sesión descartada (capital {abierta['capital_inicial']:g} {abierta['moneda_inicial']}); no se guardó en el historial.")
+        return {"ok": True}
+
     @app.get("/api/contrapartes")
     def listar_contrapartes():
         return db.contrapartes()

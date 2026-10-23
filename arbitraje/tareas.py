@@ -393,8 +393,8 @@ class Motor:
         cedula = (fila or {}).get("cedula")
         if not tels and not cedula:
             texto = (f"Compra nueva {etiqueta}: no tengo teléfono ni cédula de {nick or 'la contraparte'}, "
-                     "así que no pude armar el bloque. Pégale sus datos en “Preparar pago” del panel "
-                     "(o guárdalos en Contrapartes y la próxima vez va solo).")
+                     "así que no pude armar el bloque. Guarda sus datos en Contrapartes (panel → Órdenes, ciclos, banco y eventos) "
+                     "y la próxima vez te llega solo.")
             self.decidir(texto)
             await self.avisos.enviar("Compra por pagar: faltan datos", texto)
             return texto

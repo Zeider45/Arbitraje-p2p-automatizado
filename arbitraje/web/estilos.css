@@ -444,3 +444,110 @@ h2 { font-size: 15px; }
   .kpis-extra { grid-template-columns: 1fr; }
   .tarjeta { padding: 16px; }
 }
+
+/* ======== diseño moderno: tipografía Inter, mucho aire y colores suaves ======== */
+@font-face {
+  font-family: "Inter"; font-style: normal; font-weight: 100 900; font-display: swap;
+  src: url("/static/inter.woff2") format("woff2");
+}
+:root {
+  --pagina: #f5f6f8; --superficie: #ffffff;
+  --tinta-1: #111318; --tinta-2: #5b6170; --tinta-3: #9097a5;
+  --rejilla: #e8eaef; --eje: #d3d6de; --borde: rgba(17, 19, 24, 0.07); --lavado: #f1f3f6;
+  --acento: #2563eb; --sobre-acento: #ffffff; --pista: #dbe6fd;
+  --serie-1: #2563eb; --serie-2: #f97316; --area-1: rgba(37, 99, 235, 0.10);
+  --bien: #16a34a; --aviso: #f59e0b; --critico: #dc2626; --negativo: #dc2626;
+  --radio: 20px;
+  --sombra: 0 1px 2px rgba(16, 24, 40, 0.04), 0 8px 28px rgba(16, 24, 40, 0.05);
+  --sombra-flotante: 0 12px 36px rgba(16, 24, 40, 0.16);
+}
+:root[data-theme="dark"] {
+  --pagina: #0b0c0f; --superficie: #14161b;
+  --tinta-1: #f2f3f5; --tinta-2: #a4a9b5; --tinta-3: #6f7583;
+  --rejilla: #23262d; --eje: #343843; --borde: rgba(255, 255, 255, 0.07); --lavado: #1b1e24;
+  --acento: #5b8def; --sobre-acento: #0b0c0f; --pista: #1b2a4d;
+  --serie-1: #5b8def; --serie-2: #fb923c; --area-1: rgba(91, 141, 239, 0.14);
+  --bien: #34d399; --aviso: #fbbf24; --critico: #f87171; --negativo: #f87171;
+  --sombra: none; --sombra-flotante: 0 12px 36px rgba(0, 0, 0, 0.6);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --pagina: #0b0c0f; --superficie: #14161b;
+    --tinta-1: #f2f3f5; --tinta-2: #a4a9b5; --tinta-3: #6f7583;
+    --rejilla: #23262d; --eje: #343843; --borde: rgba(255, 255, 255, 0.07); --lavado: #1b1e24;
+    --acento: #5b8def; --sobre-acento: #0b0c0f; --pista: #1b2a4d;
+    --serie-1: #5b8def; --serie-2: #fb923c; --area-1: rgba(91, 141, 239, 0.14);
+    --bien: #34d399; --aviso: #fbbf24; --critico: #f87171; --negativo: #f87171;
+    --sombra: none; --sombra-flotante: 0 12px 36px rgba(0, 0, 0, 0.6);
+  }
+}
+body {
+  font: 15px/1.55 "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  letter-spacing: -0.006em; font-feature-settings: "cv11", "ss01"; font-variant-numeric: tabular-nums;
+}
+button, input, select, textarea { font-family: inherit; }
+h1 { font-size: 22px; font-weight: 650; letter-spacing: -0.02em; }
+h2 { font-size: 15px; font-weight: 600; letter-spacing: -0.01em; }
+.sub, .etiqueta, .detalle { font-size: 13px; }
+.etiqueta { font-weight: 500; }
+
+.tarjeta, .tile, .grafico, .seccion { box-shadow: var(--sombra); border: 1px solid var(--borde); border-radius: var(--radio); }
+.tarjeta { padding: 24px; }
+.tile { padding: 18px 20px; }
+.kpis .tile.hero { padding: 32px 28px; }
+.hero-valor { font-size: 64px; font-weight: 600; letter-spacing: -0.035em; line-height: 1; }
+.valor { font-size: 26px; font-weight: 600; letter-spacing: -0.02em; }
+.cifra { font-size: 24px; font-weight: 600; letter-spacing: -0.02em; }
+.unidad { font-weight: 500; }
+main, .barra, .pie { max-width: 920px; }
+main { gap: 24px; }
+.seccion { padding: 0 24px; }
+.seccion > summary { padding: 20px 0; font-size: 15px; }
+.seccion[open] { padding-bottom: 24px; }
+
+.boton {
+  border-radius: 999px; padding: 9px 18px; font-size: 14px; font-weight: 600; transition: filter .15s, background .15s;
+}
+.boton:hover { filter: brightness(1.06); }
+.boton.secundario { background: var(--lavado); border-color: transparent; color: var(--tinta-1); font-weight: 550; }
+.boton.secundario:hover { background: var(--rejilla); filter: none; }
+.boton-operativa { background: var(--tinta-1); color: var(--superficie); }
+.boton-operativa[data-pausada="true"] { background: var(--bien); color: #fff; }
+.boton-icono { border-radius: 999px; border-color: transparent; background: var(--lavado); width: 36px; height: 36px; }
+
+.segmentado { border-radius: 999px; padding: 4px; background: var(--lavado); border-color: transparent; }
+.segmentado button, .segmentado.modo a { border-radius: 999px; padding: 7px 16px; font-weight: 550; }
+.segmentado button[aria-checked="true"], .segmentado.modo a[aria-current="page"] { background: var(--superficie); box-shadow: 0 1px 3px rgba(16, 24, 40, 0.12); }
+.chip { border-color: transparent; background: var(--lavado); padding: 5px 12px; }
+.insignia { border: 0; background: var(--lavado); }
+.aviso, .banner-pausa { border: 0; border-radius: 14px; background: var(--lavado); }
+.aviso-inline { border-radius: 12px; }
+
+input, select, textarea {
+  border: 1px solid var(--borde); background: var(--lavado); color: var(--tinta-1);
+  border-radius: 12px; padding: 10px 12px; font-size: 14px;
+}
+input:focus, select:focus, textarea:focus { outline: 2px solid var(--acento); outline-offset: 0; background: var(--superficie); }
+label { color: var(--tinta-2); font-size: 13px; font-weight: 500; }
+
+.sesion-metrica, .lista-decisiones li { border: 0; border-radius: 14px; background: var(--lavado); }
+.mas-acciones .menu { border-radius: 16px; }
+.pasos { font-size: 14px; }
+table { font-size: 13.5px; }
+
+@media (max-width: 720px) {
+  .barra, main, .pie { padding-left: 14px; padding-right: 14px; }
+  .sesion-metricas { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .sesion .cabecera, .cabecera { flex-wrap: wrap; }
+  .hero-valor { font-size: 52px; }
+  .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .kpis .tile.hero { grid-column: span 2; padding: 24px 20px; }
+  .filtros { align-items: stretch; }
+  .segmentado { width: 100%; }
+  .segmentado button { padding: 7px 4px; }
+  .acciones { width: 100%; }
+  .acciones .boton-operativa { flex: 1; }
+  .seccion, .tarjeta { padding-left: 18px; padding-right: 18px; }
+  .precios { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 720px) { .segmentado.modo { width: auto; } }

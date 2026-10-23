@@ -214,3 +214,13 @@ def test_simulacion_se_puede_apagar(tmp_path):
     with TestClient(crear_app(cfg, iniciar_tareas=False)) as c:
         assert c.get("/api/panel").json()["config"]["simulacion_disponible"] is False
         assert c.get("/sim/api/panel").status_code == 404
+
+
+def test_descartar_sesion_no_deja_historial(cliente):
+    cliente.post("/api/sesion/cerrar", json={})  # la demo trae una abierta
+    cliente.post("/api/sesion/iniciar", json={"capital_inicial": 300000, "moneda_inicial": "VES"})
+    antes = len(cliente.get("/api/panel").json()["sesiones"])
+    assert cliente.post("/api/sesion/descartar").status_code == 200
+    d = cliente.get("/api/panel").json()
+    assert d["sesion"] is None and len(d["sesiones"]) == antes - 1
+    assert cliente.post("/api/sesion/descartar").status_code == 404
