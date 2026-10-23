@@ -224,3 +224,31 @@ def test_descartar_sesion_no_deja_historial(cliente):
     d = cliente.get("/api/panel").json()
     assert d["sesion"] is None and len(d["sesiones"]) == antes - 1
     assert cliente.post("/api/sesion/descartar").status_code == 404
+
+
+def test_app_instalable_sin_clave_para_manifiesto_y_sw(tmp_path):
+    cfg = cargar(None, demo=True)
+    cfg.general.base_datos = str(tmp_path / "d.db")
+    cfg.panel.clave = "secreta"
+    with TestClient(crear_app(cfg, iniciar_tareas=False)) as c:
+        m = c.get("/manifest.webmanifest")
+        assert m.status_code == 200 and m.json()["display"] == "standalone" and len(m.json()["icons"]) >= 3
+        sw = c.get("/sw.js")
+        assert sw.status_code == 200 and sw.headers["service-worker-allowed"] == "/"
+        for icono in ("icono-192.png", "icono-512.png", "icono-maskable-512.png", "icono-apple-180.png"):
+            assert c.get(f"/static/{icono}").status_code == 200
+        # lo demás sigue protegido por la clave
+        assert c.get("/api/panel").status_code == 401 and c.get("/").status_code == 401
+
+
+def test_comision_medida_y_neto_sin_comision(cliente):
+    from arbitraje.ganancias import comision_medida
+
+    assert comision_medida([]) is None
+    ordenes = [{"rol": "MAKER", "estado": "COMPLETED", "cantidad": 100.0, "comision": 0.25},
+               {"rol": "TAKER", "estado": "COMPLETED", "cantidad": 100.0, "comision": 0.0}]
+    assert comision_medida(ordenes) == pytest.approx(0.25)
+    d = cliente.get("/api/panel").json()
+    a = d["mercado"]["actual"]
+    assert a["neto_sin_comision_pct"] > a["netos_por_ruta"]["bdv"]   # sin comisión rinde más
+    assert "comision_anunciante_pct" in d["config"] and "comision_medida_pct" in d["config"]

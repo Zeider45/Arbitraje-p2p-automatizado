@@ -35,13 +35,16 @@ def _llenar(plantilla: str, banco: str, minutos: int) -> str:
     return plantilla.format_map({"banco": banco, "minutos": minutos})
 
 
-def textos(cfg_anuncios, banco_id: str) -> dict:
-    """Términos de compra y venta, respuesta automática y condiciones sugeridas para el banco con el que operas."""
-    nombre = BANCOS.get(banco_id, banco_id)
+def textos(cfg_anuncios, banco_compra: str, banco_venta: str | None = None) -> dict:
+    """Términos y respuesta automática de cada anuncio, con el banco que le toca, más las condiciones sugeridas."""
+    banco_venta = banco_venta or banco_compra
+    compra, venta = BANCOS.get(banco_compra, banco_compra), BANCOS.get(banco_venta, banco_venta)
     minutos = cfg_anuncios.pay_time_limit
+    respuesta = cfg_anuncios.respuesta_automatica or RESPUESTA_AUTOMATICA
     return {
-        "compra": _llenar(cfg_anuncios.terminos_compra or TERMINOS_COMPRA, nombre, minutos),
-        "venta": _llenar(cfg_anuncios.terminos_venta or TERMINOS_VENTA, nombre, minutos),
-        "respuesta": _llenar(cfg_anuncios.respuesta_automatica or RESPUESTA_AUTOMATICA, nombre, minutos),
+        "compra": _llenar(cfg_anuncios.terminos_compra or TERMINOS_COMPRA, compra, minutos),
+        "venta": _llenar(cfg_anuncios.terminos_venta or TERMINOS_VENTA, venta, minutos),
+        "respuesta_compra": _llenar(respuesta, compra, minutos),
+        "respuesta_venta": _llenar(respuesta, venta, minutos),
         "condiciones": CONDICIONES,
     }

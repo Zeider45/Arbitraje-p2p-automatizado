@@ -7,8 +7,9 @@ import csv
 import io
 import json
 import mimetypes
-import secrets
 import copy
+import hashlib
+import secrets
 from contextlib import asynccontextmanager
 from dataclasses import asdict
 from datetime import datetime
@@ -23,8 +24,9 @@ from pydantic import BaseModel, Field
 
 from . import (
     __version__, anuncios as mod_anuncios, banco, ganancias, mercado, pagos as mod_pagos, sesion as mod_sesion,
-    simulador as mod_simulador, bancos as mod_bancos, terminos as mod_terminos,
+    simulador as mod_simulador, bancos as mod_bancos, terminos as mod_terminos, montos as mod_montos,
 )
+
 from .config import Config
 from .db import BaseDatos
 from .tareas import Motor
@@ -35,7 +37,9 @@ WEB = Path(__file__).parent / "web"
 mimetypes.add_type("text/javascript", ".js")
 mimetypes.add_type("text/css", ".css")
 
-RUTAS_PUBLICAS = ("/api/salud", "/api/banco/sms")  # el webhook usa su propio token
+# rutas exactas sin clave (el webhook de SMS usa su propio token) + los iconos de la app instalable
+RUTAS_PUBLICAS = frozenset({"/api/salud", "/api/banco/sms", "/manifest.webmanifest", "/sw.js"})
+PREFIJOS_PUBLICOS = ("/static/icono-",)
 CUBETAS_MIN = (1, 5, 15, 30, 60, 120, 240, 360, 720, 1440)
 MAX_PUNTOS = 300
 FILAS_TABLA = 300
@@ -103,8 +107,16 @@ class Simulacion(BaseModel):
     precio_venta: float | None = Field(default=None, gt=0)   # lo que recibes por USDT; vacío = mercado actual
 
 
-class MiBanco(BaseModel):
-    banco: str
+class IniciarSimulacion(Simulacion):
+    nota: str | None = Field(default=None, max_length=200)
+
+
+class ElegirEstrategia(BaseModel):
+    banco_compra: str | None = None
+    banco_venta: str | None = None
+    monto_bs: float | None = Field(default=None, ge=0)            # 0 = sin filtro por monto
+    margen_minimo_pct: float | None = Field(default=None, ge=0, le=20)
+    monto_auto: bool | None = None                                 # True = el bot elige solo el mejor monto
 
 
 class ReiniciarSimulacion(BaseModel):
@@ -194,6 +206,9 @@ def datos_panel(cfg: Config, db: BaseDatos, motor: Motor, periodo: str) -> dict:
             "netos_por_ruta": mercado.netos_por_ruta(compra, venta, cfg.costos),
             "sugerido_compra": venta + tick if venta else None,
             "sugerido_venta": compra - tick if compra else None,
+            # la comisión de anunciante pesa mucho en el margen: se muestra también sin ella para comparar
+            "neto_sin_comision_pct": mercado.neto_sin_comision(compra, venta, cfg.costos, cfg.anuncios.ruta, tick)
+            if compra and venta else None,
         }
     anuncios = datos_anuncios(cfg, motor)
     sesion_activa = datos_sesion(cfg, db, cotizacion, ordenes)
@@ -221,12 +236,14 @@ def datos_panel(cfg: Config, db: BaseDatos, motor: Motor, periodo: str) -> dict:
             "fiat": cfg.mercado.fiat,
             "metodos_pago": cfg.mercado.metodos_pago,
             "capital_usdt": cfg.general.capital_usdt,
+            "monto_bs": cfg.mercado.monto_bs,
+            "comision_anunciante_pct": cfg.costos.comision_anunciante_pct,
+            "comision_medida_pct": ganancias.comision_medida(ordenes),
             "spread_minimo_pct": cfg.alertas.spread_minimo_pct,
             "ruta_por_defecto": ruta,
             "binance_configurado": cfg.binance.tiene_claves,
             "telegram_configurado": motor.telegram.activo,
             "pagos_automaticos": cfg.pagos.automatico,
-            "whatsapp_configurado": motor.whatsapp.activo,
             "webhook_configurado": bool(cfg.banco.webhook_token),
             "intervalo_mercado_seg": cfg.mercado.intervalo_seg,
             "bancos": mod_pagos.BANCOS_VE,
@@ -248,7 +265,9 @@ def datos_panel(cfg: Config, db: BaseDatos, motor: Motor, periodo: str) -> dict:
         "banco": {"movimientos": list(reversed(movimientos))[:FILAS_TABLA], "conciliacion": conciliacion},
         "eventos": db.eventos(60),
         "decisiones": db.eventos(40, "decision"),
+        "estrategia": motor.datos_estrategia(),
         "bancos": motor.analisis_bancos(),
+        "montos": motor.analisis_montos(),
     }
 
 
@@ -259,7 +278,7 @@ def guia_manual(cfg: Config, plan) -> dict:
     lados = {}
     for lado, propio, metodos in (
         ("compra", a.monto_compra_usdt, a.metodos_compra),
-        ("venta", a.monto_venta_usdt, cfg.mercado.metodos_pago),
+        ("venta", a.monto_venta_usdt, a.metodos_venta),
     ):
         pl = getattr(plan, lado) if plan else None
         lados[lado] = {
@@ -270,7 +289,7 @@ def guia_manual(cfg: Config, plan) -> dict:
             "metodos": metodos, "tiempo_pago_min": a.pay_time_limit,
         }
     return {"activo": cfg.mercado.activo, "fiat": cfg.mercado.fiat, "lados": lados,
-            "textos": mod_terminos.textos(a, cfg.mercado.mi_banco)}
+            "textos": mod_terminos.textos(a, cfg.mercado.banco_compra, cfg.mercado.banco_venta)}
 
 
 def datos_anuncios(cfg: Config, motor: Motor) -> dict:
@@ -330,7 +349,6 @@ def config_simulacion(cfg: Config) -> Config:
     sim.general.base_datos = str(Path(cfg.general.base_datos).with_name("demo.db"))
     sim.binance.api_key = sim.binance.api_secret = ""
     sim.alertas.telegram_token = sim.alertas.telegram_chat_id = ""
-    sim.alertas.whatsapp_telefono = sim.alertas.whatsapp_apikey = ""
     sim.banco.webhook_token = ""
     sim.anuncios.automatico, sim.anuncios.modo = True, "simular"
     return sim
@@ -346,6 +364,7 @@ def crear_app(cfg: Config, iniciar_tareas: bool = True, con_simulacion: bool = T
     if cfg.demo and motor.simulador is not None:
         motor.ultima_cotizacion = motor.simulador.cotizar()  # primer plan visible al abrir el panel
         motor.bancos_cotizaciones = mod_bancos.simuladas(db.ultima_cotizacion(), cfg.mercado.bancos_comparar)
+        motor.montos_cotizaciones = mod_montos.simuladas(db.ultima_cotizacion(), mod_montos.tramos_para(motor.capital_bs()))
 
     sim_app = None
     if con_simulacion and not cfg.demo and cfg.panel.simulacion:
@@ -371,7 +390,7 @@ def crear_app(cfg: Config, iniciar_tareas: bool = True, con_simulacion: bool = T
 
     @app.middleware("http")
     async def seguridad(request: Request, call_next):
-        if cfg.panel.clave and not request.url.path.startswith(RUTAS_PUBLICAS):
+        if cfg.panel.clave and request.url.path not in RUTAS_PUBLICAS and not request.url.path.startswith(PREFIJOS_PUBLICOS):
             if not credenciales_validas(request.headers.get("authorization", ""), cfg.panel.usuario, cfg.panel.clave):
                 return Response(
                     "Se requiere usuario y clave.", status_code=401,
@@ -388,6 +407,20 @@ def crear_app(cfg: Config, iniciar_tareas: bool = True, con_simulacion: bool = T
     @app.get("/", include_in_schema=False)
     def inicio():
         return FileResponse(WEB / "index.html")
+
+    @app.get("/manifest.webmanifest", include_in_schema=False)
+    def manifiesto():
+        return FileResponse(WEB / "manifest.webmanifest", media_type="application/manifest+json")
+
+    @app.get("/sw.js", include_in_schema=False)
+    def service_worker():
+        # en la raíz para que controle todo el sitio; sin caché para que las actualizaciones lleguen
+        version = hashlib.md5("".join(
+            f"{f.name}{f.stat().st_mtime_ns}" for f in sorted(WEB.iterdir()) if f.suffix in (".js", ".css", ".html", ".webmanifest")
+        ).encode()).hexdigest()[:10]
+        texto = (WEB / "sw.js").read_text(encoding="utf-8").replace("__VERSION__", version)
+        return Response(texto, media_type="text/javascript",
+                        headers={"Service-Worker-Allowed": "/", "Cache-Control": "no-cache"})
 
     app.mount("/static", StaticFiles(directory=WEB), name="static")
     if sim_app:
@@ -523,19 +556,28 @@ def crear_app(cfg: Config, iniciar_tareas: bool = True, con_simulacion: bool = T
         """Proyección de ciclos con tu capital. No guarda nada ni toca Binance."""
         return correr_simulacion(datos)
 
-    @app.post("/api/simulacion/ciclos")
-    def aplicar_ciclos(datos: Simulacion):
-        """Solo en modo Simulación: convierte los ciclos en órdenes simuladas para verlas en el panel."""
+    @app.post("/api/simulacion/iniciar", status_code=201)
+    def iniciar_simulacion(datos: IniciarSimulacion):
+        """Solo en modo Simulación: abre la sesión con tu capital y corre N ciclos a los precios de mercado de ahora."""
         if not cfg.demo:
             raise HTTPException(403, "Esto solo existe en el modo Simulación.")
+        if db.sesion_abierta():
+            raise HTTPException(409, "Ya hay una sesión abierta. Descártala o ciérrala antes de iniciar otra.")
         r = correr_simulacion(datos)
+        ahora = ahora_ms()
         ordenes = mod_simulador.ordenes_de_ciclos(
             r["filas"], datos.moneda, r["precio_compra"], r["precio_venta"], cfg.costos, r["ruta"], datos.rol,
-            ahora_ms(), datos.ciclos_por_dia,
+            ahora, datos.ciclos_por_dia,
         )
         db.guardar_ordenes(ordenes)
-        db.registrar_evento("decision", f"Simulación: apliqué {datos.ciclos} ciclos con {datos.capital:g} {datos.moneda} "
-                            f"({r['ganancia']:+.2f} {datos.moneda}).")
+        precio = mod_sesion.precio_referencia(db.ultima_cotizacion(), datos.moneda)
+        db.abrir_sesion({
+            "capital_inicial": datos.capital, "moneda_inicial": datos.moneda, "precio_inicial": precio,
+            "nota": datos.nota or f"Simulación de {datos.ciclos} ciclos", "inicio_ms": min(o["creada_ms"] for o in ordenes) - 3_600_000,
+        })
+        db.registrar_evento("decision", f"Simulación iniciada: {datos.capital:g} {datos.moneda}, {datos.ciclos} ciclos a "
+                            f"{r['precio_compra']:.2f} / {r['precio_venta']:.2f} Bs → {r['ganancia']:+.2f} {datos.moneda} "
+                            f"({r['rendimiento_pct']:+.2f} %) en {r['dias']} día(s).")
         return {**{k: v for k, v in r.items() if k != "filas"}, "ordenes_creadas": len(ordenes)}
 
     @app.post("/api/simulacion/reiniciar")
@@ -549,6 +591,8 @@ def crear_app(cfg: Config, iniciar_tareas: bool = True, con_simulacion: bool = T
             from .demo import sembrar
 
             sembrar(db, cfg)
+        else:
+            db.escribir_estado("demo_sembrado", 1)  # vacía a propósito: al reiniciar el programa no se vuelve a sembrar
         if motor.simulador is not None:
             from .demo import MercadoSimulado
 
@@ -558,12 +602,14 @@ def crear_app(cfg: Config, iniciar_tareas: bool = True, con_simulacion: bool = T
         db.registrar_evento("info", f"Simulación reiniciada con capital {datos.capital:g} USDT.")
         return {"ok": True, "capital": datos.capital, "con_ejemplo": datos.con_ejemplo}
 
-    @app.post("/api/bancos/mi-banco")
-    async def elegir_mi_banco(datos: MiBanco):
-        if datos.banco not in mod_bancos.BANCOS:
-            raise HTTPException(422, "Banco desconocido.")
-        texto = await motor.cambiar_banco(datos.banco)
-        return {**motor.analisis_bancos(), "estrategia": texto}
+    @app.post("/api/estrategia")
+    async def elegir_estrategia(datos: ElegirEstrategia):
+        try:
+            texto = await motor.cambiar_estrategia(datos.model_dump(exclude_none=True))
+        except ValueError as e:
+            raise HTTPException(422, str(e))
+        return {"estrategia": motor.datos_estrategia(), "mensaje": texto,
+                "bancos": motor.analisis_bancos(), "montos": motor.analisis_montos()}
 
     @app.post("/api/sesion/descartar")
     def descartar_sesion():

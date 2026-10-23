@@ -65,8 +65,9 @@ def test_textos_del_anuncio_usan_banco_y_minutos(tmp_path):
 
     cfg = cargar(None)
     cfg.anuncios.pay_time_limit = 20
-    t = textos(cfg.anuncios, "Banesco")
-    assert "Banesco" in t["compra"] and "20 minutos" in t["venta"] and "{" not in t["respuesta"]
+    t = textos(cfg.anuncios, "Banesco", "BancoPlaza")
+    assert "Banesco" in t["compra"] and "Banco Plaza" in t["venta"] and "20 minutos" in t["venta"]
+    assert "Banesco" in t["respuesta_compra"] and "Banco Plaza" in t["respuesta_venta"] and "{" not in t["respuesta_venta"]
     assert "titular" in t["venta"].lower() and "terceros" in t["compra"].lower() and "cancel" in t["venta"].lower()
     assert len(t["compra"]) < 1000 and len(t["venta"]) < 1000
     cfg.anuncios.terminos_venta = "Solo {banco}, {minutos} min."
@@ -80,4 +81,4 @@ def test_guia_incluye_textos(tmp_path):
     cfg.anuncios.modo = "manual"
     with TestClient(crear_app(cfg, iniciar_tareas=False)) as c:
         t = c.get("/api/panel").json()["anuncios"]["guia_manual"]["textos"]
-        assert t["compra"] and t["venta"] and t["respuesta"] and t["condiciones"]
+        assert t["compra"] and t["venta"] and t["respuesta_compra"] and t["respuesta_venta"] and t["condiciones"]

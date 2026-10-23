@@ -6,6 +6,14 @@
 <title>Arbitraje P2P</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%232a78d6'/%3E%3Cpath d='M7 21l6-6 4 4 8-9' stroke='white' stroke-width='3' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="/static/estilos.css">
+<link rel="manifest" href="/manifest.webmanifest">
+<meta name="theme-color" content="#2563eb">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Arbitraje">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="apple-touch-icon" href="/static/icono-apple-180.png">
+<link rel="icon" type="image/png" sizes="192x192" href="/static/icono-192.png">
 <script>
   // aplica el tema guardado antes de pintar, para que no parpadee
   try { var t = localStorage.getItem("tema"); if (t === "light" || t === "dark") document.documentElement.dataset.theme = t; } catch (e) {}
@@ -127,7 +135,7 @@
     <p class="sub" id="decisiones-vacio">Todavía no ha tomado ninguna decisión.</p>
   </section>
 
-  <section class="una-columna">
+  <section class="una-columna" id="mercado">
     <article class="tarjeta" aria-labelledby="t-mercado">
       <header class="cabecera">
         <h2 id="t-mercado">Mercado ahora</h2>
@@ -156,6 +164,7 @@
         <div class="neto"><span class="etiqueta">Neto como tomador (compras y vendes al instante)</span><span class="cifra-media" id="m-neto-tomador">—</span></div>
       </div>
       <p class="sugerencia" id="m-sugerencia"></p>
+      <p class="sub" id="m-comision"></p>
       <div class="mejores">
         <h3 class="titulo-bloque">Mejores opciones ahora</h3>
         <div class="dos-tablas">
@@ -165,49 +174,51 @@
       </div>
     </article>
 
-    <details class="seccion"><summary>Tu operación</summary>
-    <article class="tarjeta" aria-labelledby="t-operacion">
-      <header class="cabecera">
-        <h2 id="t-operacion">Tu operación</h2>
-        <span class="sub" id="o-capital">—</span>
-      </header>
-      <div class="medidor">
-        <div class="medidor-cabecera">
-          <span class="etiqueta" id="o-inter-etiqueta">Pagos interbancarios hoy</span>
-          <span class="medidor-valor" id="o-inter-valor">—</span>
-        </div>
-        <div class="pista" id="o-inter-pista" role="progressbar" aria-labelledby="o-inter-etiqueta" aria-valuemin="0" aria-valuemax="100">
-          <div class="relleno" id="o-inter-relleno"></div>
-        </div>
-        <p class="sub" id="o-inter-det">—</p>
-      </div>
-      <dl class="datos">
-        <div><dt>Pagos a tu mismo banco hoy</dt><dd id="o-bdv">—</dd></div>
-        <div><dt>Posición abierta</dt><dd id="o-posicion">—</dd></div>
-        <div><dt>Si la cierras ahora</dt><dd id="o-no-realizado">—</dd></div>
-        <div><dt>Días con ganancia</dt><dd id="o-dias">—</dd></div>
-        <div><dt>Mejor día del período</dt><dd id="o-mejor">—</dd></div>
-        <div><dt>Rotación del capital</dt><dd id="o-rotacion">—</dd></div>
-      </dl>
-    </article>
-    </details>
   </section>
 
-  <section class="bancos" id="bancos" aria-labelledby="t-bancos">
+  <section class="estrategia" id="estrategia" aria-labelledby="t-estrategia">
     <header class="cabecera">
       <div>
-        <h2 id="t-bancos">Comparar bancos</h2>
-        <p class="sub">En qué banco conviene operar y dónde rinde más, según el banco que tú tengas. Al elegir uno, el bot busca anuncios y toma las decisiones solo para ese banco.</p>
+        <h2 id="t-estrategia">Estrategia</h2>
+        <p class="sub" id="estrategia-resumen">Qué decides tú: con qué bancos compras y vendes, cuánto por orden y el margen mínimo. El sistema lo aplica a todo.</p>
       </div>
-      <label class="mi-banco">Opero con
-        <select id="mi-banco"></select>
-      </label>
     </header>
+    <div class="controles-estrategia">
+      <label>Compro con <select id="e-compra"></select></label>
+      <label>Vendo con <select id="e-venta"></select></label>
+      <label>Margen mínimo (%) <input id="e-margen" type="number" step="0.05" min="0" max="20"></label>
+      <label class="casilla"><input type="checkbox" id="monto-auto"> Elegir el mejor monto solo</label>
+    </div>
+
+    <h3 class="titulo-bloque">Modalidad: ¿con qué bancos?</h3>
     <p class="reco-bancos" id="bancos-reco"></p>
     <div class="tabla-envoltura" id="bancos-tabla"></div>
     <h3 class="titulo-bloque">Mejores combinaciones (comprar con un banco, vender con otro)</h3>
     <div class="tabla-envoltura" id="bancos-combos"></div>
-    <p class="sub" id="bancos-nota"></p>
+
+    <h3 class="titulo-bloque">Monto por orden</h3>
+    <p class="reco-bancos" id="montos-reco"></p>
+    <div class="tabla-envoltura" id="montos-tabla"></div>
+    <p class="sub" id="estrategia-nota"></p>
+  </section>
+
+  <section class="tarjeta guia-manual" id="guia-manual" aria-labelledby="t-guia" hidden>
+    <header class="cabecera">
+      <div>
+        <h2 id="t-guia">Crear tus anuncios a mano en Binance</h2>
+        <p class="sub">El bot no puede publicar por ti, así que calcula los valores exactos y te avisa por Telegram cuando conviene cambiar el precio.</p>
+      </div>
+    </header>
+    <ol class="pasos">
+      <li>En Binance abre <strong>P2P → Publicar anuncio</strong> (Post Ad).</li>
+      <li>Elige <strong>Comprar</strong> para el anuncio de compra, o <strong>Vender</strong> para el de venta, con <strong id="gm-par">USDT / VES</strong>.</li>
+      <li>Pon <strong>precio fijo</strong> con el valor de abajo, la cantidad en USDT y los límites por orden en Bs.</li>
+      <li>Marca el método de pago indicado y el tiempo límite, y pega los <strong>términos</strong> y la <strong>respuesta automática</strong> de más abajo.</li>
+      <li>Publícalo. Cuando el sistema te avise, entra a <strong>P2P → Mis anuncios → Editar</strong> y cambia solo el precio.</li>
+    </ol>
+    <div class="an-grid" id="gm-lados"></div>
+    <div class="textos-anuncio" id="gm-textos"></div>
+    <p class="sub" id="gm-nota"></p>
   </section>
 
   <details class="seccion"><summary>Automatización de anuncios</summary>
@@ -246,26 +257,35 @@
   
   </details>
 
-  <section class="tarjeta guia-manual" id="guia-manual" aria-labelledby="t-guia" hidden>
-    <header class="cabecera">
-      <div>
-        <h2 id="t-guia">Crear tus anuncios a mano en Binance</h2>
-        <p class="sub">El bot no puede publicar por ti, así que calcula los valores exactos y te avisa por Telegram/WhatsApp cuando conviene cambiar el precio.</p>
-      </div>
-    </header>
-    <ol class="pasos">
-      <li>En Binance abre <strong>P2P → Publicar anuncio</strong> (Post Ad).</li>
-      <li>Elige <strong>Comprar</strong> para el anuncio de compra, o <strong>Vender</strong> para el de venta, con <strong id="gm-par">USDT / VES</strong>.</li>
-      <li>Pon <strong>precio fijo</strong> con el valor de abajo, la cantidad en USDT y los límites por orden en Bs.</li>
-      <li>Marca el método de pago indicado y el tiempo límite, y pega los <strong>términos</strong> y la <strong>respuesta automática</strong> de más abajo.</li>
-      <li>Publícalo. Cuando el sistema te avise, entra a <strong>P2P → Mis anuncios → Editar</strong> y cambia solo el precio.</li>
-    </ol>
-    <div class="an-grid" id="gm-lados"></div>
-    <div class="textos-anuncio" id="gm-textos"></div>
-    <p class="sub" id="gm-nota"></p>
-  </section>
 
-  <section class="tarjeta simulador" id="tarjeta-simulador" aria-labelledby="t-simulador" hidden>
+    <details class="seccion"><summary>Tu operación</summary>
+  <article class="tarjeta" aria-labelledby="t-operacion">
+    <header class="cabecera">
+      <h2 id="t-operacion">Tu operación</h2>
+      <span class="sub" id="o-capital">—</span>
+    </header>
+    <div class="medidor">
+      <div class="medidor-cabecera">
+        <span class="etiqueta" id="o-inter-etiqueta">Pagos interbancarios hoy</span>
+        <span class="medidor-valor" id="o-inter-valor">—</span>
+      </div>
+      <div class="pista" id="o-inter-pista" role="progressbar" aria-labelledby="o-inter-etiqueta" aria-valuemin="0" aria-valuemax="100">
+        <div class="relleno" id="o-inter-relleno"></div>
+      </div>
+      <p class="sub" id="o-inter-det">—</p>
+    </div>
+    <dl class="datos">
+      <div><dt>Pagos a tu mismo banco hoy</dt><dd id="o-bdv">—</dd></div>
+      <div><dt>Posición abierta</dt><dd id="o-posicion">—</dd></div>
+      <div><dt>Si la cierras ahora</dt><dd id="o-no-realizado">—</dd></div>
+      <div><dt>Días con ganancia</dt><dd id="o-dias">—</dd></div>
+      <div><dt>Mejor día del período</dt><dd id="o-mejor">—</dd></div>
+      <div><dt>Rotación del capital</dt><dd id="o-rotacion">—</dd></div>
+    </dl>
+  </article>
+  </details>
+
+  <details class="seccion simulador" id="tarjeta-simulador" hidden><summary>Calculadora de ciclos</summary>
     <header class="cabecera">
       <div>
         <h2 id="t-simulador">Simulador de ciclos</h2>
@@ -293,7 +313,6 @@
       <div class="pie-formulario">
         <span class="sub">Deja los precios vacíos para usar los del mercado ahora.</span>
         <button type="button" class="boton secundario" id="sim-reiniciar" title="Borra todo lo simulado y empieza con este capital">Reiniciar simulación</button>
-        <button type="button" class="boton secundario" id="sim-aplicar" title="Crea estas órdenes simuladas en el panel">Aplicar al panel</button>
         <button type="submit" class="boton">Simular</button>
       </div>
       <p class="resultado" id="sim-resultado" role="status"></p>
@@ -303,7 +322,7 @@
       <div class="aviso-inline" id="sim-avisos" hidden></div>
       <details class="anuncios"><summary>Ver ciclo por ciclo</summary><div class="tabla-envoltura" id="sim-tabla"></div></details>
     </div>
-  </section>
+  </details>
 
   <details class="seccion"><summary>Gráficos</summary>
 <section class="graficos" aria-label="Gráficos">
@@ -434,5 +453,8 @@
 <div class="tooltip" id="tooltip" hidden></div>
 <script src="/static/graficos.js"></script>
 <script src="/static/panel.js"></script>
+<script>
+  if ("serviceWorker" in navigator) window.addEventListener("load", () => navigator.serviceWorker.register("/sw.js").catch(() => {}));
+</script>
 </body>
 </html>

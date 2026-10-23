@@ -27,7 +27,7 @@ activo = "USDT"
 fiat = "VES"
 # Identificadores de métodos de pago. Mira los exactos con:  python -m arbitraje metodos
 metodos_pago = ["BancoDeVenezuela", "PagoMovil"]
-monto_bs = 0.0                  # 0 = sin filtrar por monto; si no, solo anuncios que lo acepten
+monto_bs = 50000.0              # monto típico por orden: solo cuenta anuncios que lo acepten (0 = cualquiera con stock)
 min_ordenes_mes = 50           # ignora anunciantes con pocas órdenes
 min_tasa_completado = 90.0     # % mínimo de órdenes completadas del anunciante
 solo_comerciantes = false
@@ -68,7 +68,7 @@ respuesta_automatica = ""
 [pagos]
 # Preparación de pagos para "Pegar Datos" de la BDVApp. El bot arma el bloque con los
 # datos del beneficiario y te lo manda por Telegram; TÚ pagas en la app con tu clave.
-enviar_telegram = true               # (también llega a WhatsApp si lo configuraste)
+enviar_telegram = true
 automatico = true                     # al aparecer una compra por pagar, arma y envía el bloque solo
 ventana_orden_min = 120.0             # solo órdenes creadas en los últimos N minutos
 banco_por_defecto = "0102"            # 0102 = Banco de Venezuela
@@ -83,10 +83,7 @@ enfriamiento_min = 30.0          # no repetir la misma alerta antes de N minutos
 resumen_diario_hora = "21:00"    # resumen por Telegram ("" para desactivarlo)
 telegram_token = ""              # de @BotFather
 telegram_chat_id = ""            # tu chat id (de @userinfobot)
-# WhatsApp (gratis con CallMeBot): desde tu WhatsApp escribe "I allow callmebot to send me
-# messages" al +34 644 51 95 23 y te responde con tu apikey.
-whatsapp_telefono = ""           # tu número con código de país, solo dígitos: 584141234567
-whatsapp_apikey = ""
+
 
 [banco]
 # Límites y conciliación de pagos del Banco de Venezuela.

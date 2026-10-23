@@ -12,7 +12,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 log = logging.getLogger(__name__)
 
 # Ruta de un pago saliente: entre cuentas BDV o hacia otro banco
-RUTA_BDV = "BDV"
+RUTA_BDV = "BDV"   # nombre histórico: significa "mismo banco" (sin costo), sea cual sea el banco
 RUTA_INTERBANCARIA = "INTERBANCARIO"
 RUTAS = (RUTA_BDV, RUTA_INTERBANCARIA)
 
@@ -49,7 +49,9 @@ class Mercado:
     solo_comerciantes: bool = False
     ignorar_apodos: list[str] = field(default_factory=list)
     intervalo_seg: float = 60.0
-    mi_banco: str = "BancoDeVenezuela"   # tu banco: pagar a alguien del mismo banco no cuesta
+    mi_banco: str = "BancoDeVenezuela"   # tu banco por defecto (compras y ventas); se cambia en el panel
+    banco_compra: str = ""               # con qué banco compras USDT (vacío = mi_banco)
+    banco_venta: str = ""                # con qué banco los vendes (vacío = mi_banco)
     bancos_comparar: list[str] = field(default_factory=lambda: [
         "BancoDeVenezuela", "Banesco", "Mercantil", "Provincial", "BNCBancoNacional", "Bancamiga",
         "Bancaribe", "Banplus", "BancoDelTesoro", "BancoPlaza", "BFC", "PagoMovil"])
@@ -89,6 +91,7 @@ class Anuncios:
     classify: str = "mass"
     pay_ids_venta: list[int] = field(default_factory=list)   # payId de tus métodos (anuncios de VENTA)
     metodos_compra: list[str] = field(default_factory=lambda: ["BancoDeVenezuela", "PagoMovil"])
+    metodos_venta: list[str] = field(default_factory=lambda: ["BancoDeVenezuela", "PagoMovil"])
     ruta: str = "BDV"                 # ruta bancaria para calcular el margen del anuncio
     terminos_compra: str = ""         # texto de términos de tu anuncio de compra (vacío = el de por defecto)
     terminos_venta: str = ""          # texto de términos de tu anuncio de venta (vacío = el de por defecto)
@@ -106,8 +109,6 @@ class Alertas:
     resumen_diario_hora: str = "21:00"
     telegram_token: str = ""
     telegram_chat_id: str = ""
-    whatsapp_telefono: str = ""      # tu número con código de país, sin "+": 584141234567
-    whatsapp_apikey: str = ""        # la que te manda CallMeBot
 
 
 @dataclass
@@ -173,8 +174,6 @@ VARIABLES_ENTORNO = {
     "BINANCE_API_SECRET": ("binance", "api_secret"),
     "TELEGRAM_TOKEN": ("alertas", "telegram_token"),
     "TELEGRAM_CHAT_ID": ("alertas", "telegram_chat_id"),
-    "WHATSAPP_TELEFONO": ("alertas", "whatsapp_telefono"),
-    "WHATSAPP_APIKEY": ("alertas", "whatsapp_apikey"),
     "WEBHOOK_TOKEN": ("banco", "webhook_token"),
     "PANEL_HOST": ("panel", "host"),
     "PANEL_PUERTO": ("panel", "puerto"),
@@ -263,7 +262,6 @@ def validar(cfg: Config) -> None:
     cfg.anuncios.desfase_tick = max(cfg.anuncios.desfase_tick, 0)
     if cfg.alertas.resumen_diario_hora and not re.fullmatch(r"\d{1,2}:\d{2}", cfg.alertas.resumen_diario_hora):
         raise ValueError('alertas.resumen_diario_hora debe tener el formato "HH:MM" (o "" para desactivarlo)')
-    cfg.alertas.whatsapp_telefono = re.sub(r"\D", "", cfg.alertas.whatsapp_telefono)
     cfg.binance.dias_historial = min(max(cfg.binance.dias_historial, 1), 180)
     # no saturar a Binance: mínimo 15 s entre consultas de mercado y 1 min entre sincronizaciones
     cfg.mercado.intervalo_seg = max(cfg.mercado.intervalo_seg, 15.0)

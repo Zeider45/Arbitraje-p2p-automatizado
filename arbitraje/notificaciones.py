@@ -1,4 +1,4 @@
-"""Avisos por Telegram y WhatsApp (opcionales)."""
+"""Avisos por Telegram (opcionales)."""
 from __future__ import annotations
 
 import html
@@ -42,41 +42,6 @@ class Telegram:
             return False
         if r.status_code != 200:
             log.warning("Telegram respondió HTTP %s: %s", r.status_code, r.text[:200])
-            return False
-        return True
-
-
-class WhatsApp:
-    """Avisos a tu propio WhatsApp con CallMeBot (gratis, sin cuenta de empresa).
-
-    Activación única: desde tu WhatsApp escribe "I allow callmebot to send me messages" al
-    +34 644 51 95 23; te responde con tu apikey.
-    """
-
-    URL = "https://api.callmebot.com/whatsapp.php"
-
-    def __init__(self, telefono: str, apikey: str, http: httpx.AsyncClient):
-        self.telefono = telefono
-        self.apikey = apikey
-        self.http = http
-
-    @property
-    def activo(self) -> bool:
-        return bool(self.telefono and self.apikey)
-
-    async def enviar(self, titulo: str, cuerpo: str = "", pre: bool = False) -> bool:
-        if not self.activo:
-            return False
-        texto = f"*{titulo}*" + (f"\n{cuerpo}" if cuerpo else "")
-        try:
-            r = await self.http.get(
-                self.URL, params={"phone": self.telefono, "text": texto, "apikey": self.apikey}, timeout=20
-            )
-        except httpx.HTTPError as e:
-            log.warning("No pude enviar el aviso a WhatsApp: %s", str(e).replace(self.apikey, "***"))
-            return False
-        if r.status_code != 200:
-            log.warning("CallMeBot respondió HTTP %s: %s", r.status_code, r.text[:200])
             return False
         return True
 

@@ -84,16 +84,13 @@ def test_ordenes_de_ciclos_son_compra_y_venta_completadas():
     assert len({o["numero"] for o in ords}) == 6
 
 
-def test_simulacion_aplicar_y_reiniciar(tmp_path):
+def test_simulacion_reiniciar_deja_todo_vacio_o_con_ejemplo(tmp_path):
     cfg = cargar(None, demo=True)
     cfg.general.base_datos = str(tmp_path / "demo.db")
     with TestClient(crear_app(cfg, iniciar_tareas=False)) as c:
         c.post("/api/simulacion/reiniciar", json={"capital": 500})
-        assert c.get("/api/panel").json()["ordenes"] == []
-        r = c.post("/api/simulacion/ciclos", json={"capital": 500, "ciclos": 4, "precio_compra": 100, "precio_venta": 104})
-        assert r.json()["ordenes_creadas"] == 8
         d = c.get("/api/panel").json()
-        assert len(d["ordenes"]) == 8 and d["resumen"]["capital_usdt"] == 500
+        assert d["ordenes"] == [] and d["resumen"]["capital_usdt"] == 500
         c.post("/api/simulacion/reiniciar", json={"capital": 800, "con_ejemplo": True})
         assert len(c.get("/api/panel").json()["ordenes"]) > 8
 
@@ -104,4 +101,42 @@ def test_reiniciar_no_existe_en_modo_real(tmp_path):
     cfg.panel.simulacion = False
     with TestClient(crear_app(cfg, iniciar_tareas=False)) as c:
         assert c.post("/api/simulacion/reiniciar", json={"capital": 500}).status_code == 403
-        assert c.post("/api/simulacion/ciclos", json={"capital": 500, "precio_compra": 100, "precio_venta": 104}).status_code == 403
+
+
+def test_iniciar_simulacion_abre_sesion_con_ciclos(tmp_path):
+    cfg = cargar(None, demo=True)
+    cfg.general.base_datos = str(tmp_path / "demo.db")
+    with TestClient(crear_app(cfg, iniciar_tareas=False)) as c:
+        c.post("/api/simulacion/reiniciar", json={"capital": 500})
+        r = c.post("/api/simulacion/iniciar", json={"capital": 500, "moneda": "USDT", "ciclos": 6, "ciclos_por_dia": 2,
+                                                      "precio_compra": 100, "precio_venta": 104})
+        assert r.status_code == 201 and r.json()["ordenes_creadas"] == 12
+        s = c.get("/api/panel").json()["sesion"]
+        assert s["capital_inicial"] == 500 and s["ciclos"] >= 5 and s["ordenes"] == 12
+        assert s["ganancia_usdt"] > 0
+        # con una sesión abierta no se puede iniciar otra
+        assert c.post("/api/simulacion/iniciar", json={"capital": 500, "precio_compra": 100, "precio_venta": 104}).status_code == 409
+        c.post("/api/sesion/descartar")
+        assert c.post("/api/simulacion/iniciar", json={"capital": 500, "precio_compra": 100, "precio_venta": 104}).status_code == 201
+
+
+def test_iniciar_simulacion_no_existe_en_real(tmp_path):
+    cfg = cargar(None)
+    cfg.general.base_datos = str(tmp_path / "real.db")
+    cfg.panel.simulacion = False
+    with TestClient(crear_app(cfg, iniciar_tareas=False)) as c:
+        assert c.post("/api/simulacion/iniciar", json={"capital": 500, "precio_compra": 100, "precio_venta": 104}).status_code == 403
+
+
+def test_simulacion_vacia_sobrevive_a_un_reinicio(tmp_path):
+    cfg = cargar(None, demo=True)
+    cfg.general.base_datos = str(tmp_path / "demo.db")
+    with TestClient(crear_app(cfg, iniciar_tareas=False)) as c:
+        c.post("/api/simulacion/reiniciar", json={"capital": 500})
+        c.post("/api/simulacion/iniciar", json={"capital": 500, "precio_compra": 100, "precio_venta": 104})
+    # el programa se vuelve a abrir con la misma base: no debe resembrar ni fallar
+    cfg2 = cargar(None, demo=True)
+    cfg2.general.base_datos = str(tmp_path / "demo.db")
+    with TestClient(crear_app(cfg2, iniciar_tareas=False)) as c:
+        d = c.get("/api/panel").json()
+        assert d["sesion"]["capital_inicial"] == 500 and len(d["ordenes"]) == 20

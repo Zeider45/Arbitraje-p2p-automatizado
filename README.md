@@ -109,13 +109,6 @@ python -m arbitraje metodos          # identificadores de métodos de pago para 
 2. Escríbele a tu bot y saca tu **chat id** con [@userinfobot](https://t.me/userinfobot).
 3. Ponlos en `[alertas]`. Ajusta `spread_minimo_pct` y `resumen_diario_hora`.
 
-#### WhatsApp (opcional, gratis con CallMeBot)
-
-Los mismos avisos de Telegram pueden llegar a tu WhatsApp. Desde tu WhatsApp escribe
-`I allow callmebot to send me messages` al **+34 644 51 95 23**; te responde con una
-apikey. Ponla en `[alertas]` (`whatsapp_telefono` con código de país y solo dígitos, p. ej.
-`584141234567`, y `whatsapp_apikey`) o en las variables `WHATSAPP_TELEFONO` / `WHATSAPP_APIKEY`.
-
 ### 3. Conciliación automática de pagos del BDV
 
 El panel puede recibir tus SMS/notificaciones de pago y casarlos con tus órdenes.
@@ -171,7 +164,7 @@ ruta = "BDV"               # con qué ruta bancaria calcula el margen
 Si no puedes dar permiso de escritura a la API, usa `modo = "manual"` en `[anuncios]`.
 El bot calcula el precio ideal de tus anuncios, la tarjeta **"Crear tus anuncios a mano"**
 te da los valores exactos (precio, cantidad, límites, métodos de pago) con un botón de
-copiar, y cuando conviene cambiar el precio te avisa por Telegram/WhatsApp para que lo
+copiar, y cuando conviene cambiar el precio te avisa por Telegram para que lo
 edites en **P2P → Mis anuncios**. Los avisos se controlan con `aviso_cambio_pct` y
 `aviso_cada_min`.
 
@@ -201,7 +194,7 @@ dispositivos.
 El panel tiene dos modos, con el selector **Real | Simulación** arriba a la derecha:
 
 - **Real** (`/`): tu base de datos, tu cuenta de Binance, el bot de anuncios y los avisos por
-  Telegram/WhatsApp.
+  Telegram.
 - **Simulación** (`/sim/`): datos de ejemplo en su propia base (`datos/demo.db`), con el
   **simulador de ciclos** (capital, ciclos, rol, ruta). Con **Aplicar al panel** crea esos
   ciclos como órdenes simuladas, y con **Reiniciar simulación** empieza de cero con el capital
@@ -227,6 +220,27 @@ PC o un VPS barato) y conéctate desde donde quieras:
   de https (el túnel ya te lo da).
 - Para recibir los **avisos y el bloque de pago en el teléfono**, configura Telegram en
   `[alertas]`: te llegan a la app donde sea que estés, sin depender del panel abierto.
+
+## Estrategia: bancos, monto y margen
+
+Todo lo que decides vive en la sección **Estrategia** del panel (y se guarda, así que al reiniciar sigue igual):
+
+- **Compro con / Vendo con**: puedes usar el mismo banco en ambos lados o uno distinto en cada uno
+  (por ejemplo comprar con Tesoro y vender con Plaza). Mismo banco = sin costo; bancos distintos = el dinero
+  pasa de una de tus cuentas a la otra y se descuenta el costo interbancario.
+- **Monto por orden**: el mercado se mira solo con anuncios que aceptan ese monto y tus anuncios quedan con
+  límites acordes. La tabla "Monto por orden" mide el rendimiento por tramo; puedes elegir uno o dejar que el
+  sistema escoja solo el mejor (el que más Bs deja entre los que cumplen tu margen mínimo).
+- **Margen mínimo**: lo mínimo que debe dejar cada vuelta para publicar.
+- La tabla de bancos y las mejores combinaciones tienen un botón **Usar** para aplicar esa modalidad.
+
+Al cambiar cualquier cosa, el sistema vuelve a leer el mercado, ajusta los costos, los métodos de pago de tus
+anuncios, el banco por defecto del pago y deja una decisión registrada.
+
+## Instalarla como app en el teléfono
+
+Con Tailscale (dirección `https://…ts.net`) abre el panel en el navegador del teléfono y elige
+**Instalar aplicación** (Android/Chrome) o **Compartir → Añadir a pantalla de inicio** (iPhone/Safari).
 
 ## Sesiones de operación (empezar y cerrar la jornada)
 

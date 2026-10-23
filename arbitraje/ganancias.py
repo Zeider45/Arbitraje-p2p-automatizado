@@ -290,3 +290,11 @@ def serie_diaria(
         acumulada += fila["ganancia_usdt"]
         fila["acumulada_usdt"] = acumulada
     return list(filas.values())
+
+
+def comision_medida(ordenes: list[dict]) -> float | None:
+    """Comisión real (% de los USDT) que Binance te cobró en tus órdenes como anunciante; None si aún no tienes ninguna."""
+    propias = [o for o in ordenes if o.get("rol") == "MAKER" and o["estado"] == COMPLETADA and o["cantidad"]]
+    if not propias:
+        return None
+    return sum(o["comision"] for o in propias) / sum(o["cantidad"] for o in propias) * 100

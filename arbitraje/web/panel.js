@@ -128,7 +128,7 @@
     renderDecisiones(d);
     renderMercado(d);
     renderOperacion(d);
-    renderBancos(d);
+    renderEstrategia(d);
     renderAnuncios(d);
     renderGraficos(d);
     renderOrdenes(d);
@@ -252,13 +252,36 @@
     const capital = el("input", { name: "capital", type: "number", step: "0.01", min: "0.01", required: "", placeholder: "1000" });
     const moneda = el("select", { name: "moneda" }, el("option", { value: "VES", text: "Bolívares (Bs)" }), el("option", { value: "USDT", text: "USDT" }));
     const nota = el("input", { name: "nota", maxlength: "200", placeholder: "opcional" });
+    const simulada = BASE === "/sim";
+    const ciclos = el("input", { name: "ciclos", type: "number", step: "1", min: "1", max: "1000", value: "10" });
+    const porDia = el("input", { name: "ciclos_por_dia", type: "number", step: "0.1", min: "0.1", value: "2" });
+    const rol = el("select", { name: "rol" }, el("option", { value: "anunciante", text: "Anunciante" }), el("option", { value: "tomador", text: "Tomador" }));
+    const reinvertir = el("input", { type: "checkbox", name: "reinvertir", checked: "" });
     f.append(
       el("label", {}, "¿Con cuánto empiezas?", capital),
       el("label", {}, "¿En qué moneda?", moneda),
+      ...(simulada ? [
+        el("label", {}, "Número de ciclos", ciclos),
+        el("label", {}, "Ciclos por día", porDia),
+        el("label", {}, "Rol", rol),
+        el("label", { class: "casilla" }, reinvertir, "Reinvertir la ganancia")] : []),
       el("label", {}, "Nota", nota),
-      el("button", { type: "submit", class: "boton", text: "Iniciar operación" }));
+      el("button", { type: "submit", class: "boton", text: simulada ? "Iniciar simulación" : "Iniciar operación" }));
     f.addEventListener("submit", async (e) => {
       e.preventDefault();
+      if (simulada) {
+        try {
+          const r = await api("/api/simulacion/iniciar", { method: "POST", body: JSON.stringify({
+            capital: Number(capital.value), moneda: moneda.value, ciclos: Number(ciclos.value), ciclos_por_dia: Number(porDia.value || 1),
+            rol: rol.value, reinvertir: reinvertir.checked, nota: nota.value || null }) });
+          const u = r.moneda === "USDT" ? "USDT" : "Bs";
+          avisos([`Simulación lista con los precios de ahora (compras a ${num(r.precio_compra)}, vendes a ${num(r.precio_venta)}): ` +
+            `${r.ciclos} ciclos en ${r.dias} ${r.dias === 1 ? "día" : "días"} → ${conSigno(r.ganancia, r.moneda === "USDT" ? 2 : 0)} ${u} ` +
+            `(${conSigno(r.rendimiento_pct, 2)} %).` + (r.avisos.length ? " " + r.avisos.join(" ") : "")]);
+          cargar(false);
+        } catch (err) { avisos([`No pude iniciar la simulación: ${err.message}`]); }
+        return;
+      }
       try {
         await api("/api/sesion/iniciar", { method: "POST", body: JSON.stringify({
           capital_inicial: Number(capital.value), moneda_inicial: moneda.value, nota: nota.value || null }) });
@@ -369,7 +392,7 @@
       poner("m-hora", "esperando la primera consulta…");
       return;
     }
-    poner("m-hora", `${hace(a.ts_ms)} · ${a.anuncios_compra} vendedores y ${a.anuncios_venta} compradores válidos`);
+    poner("m-hora", `${hace(a.ts_ms)} · ${a.anuncios_compra} vendedores y ${a.anuncios_venta} compradores válidos` + (d.config.monto_bs ? ` · para Bs ${num(d.config.monto_bs, 0)} por orden` : " · todos los montos"));
     poner("m-compra", a.precio_compra ? `${num(a.precio_compra)} Bs` : "—");
     poner("m-venta", a.precio_venta ? `${num(a.precio_venta)} Bs` : "—");
     poner("m-brecha", a.spread_pct != null ? `${num(a.spread_pct)} %` : "—");
@@ -377,6 +400,12 @@
     neto("m-neto-bdv", a.netos_por_ruta.bdv, (v) => v >= umbral, "sobre tu umbral");
     neto("m-neto-inter", a.netos_por_ruta.interbancario, (v) => v >= umbral, "sobre tu umbral");
     neto("m-neto-tomador", a.neto_tomador_pct, (v) => v > 0, "arbitraje inmediato");
+    const fa = d.config.comision_anunciante_pct;
+    const medida = d.config.comision_medida_pct;
+    poner("m-comision", a.neto_sin_comision_pct == null ? "" :
+      (medida == null
+        ? `El neto de arriba descuenta ${num(fa, 2)} % de comisión de Binance por lado (supuesto). Aún no tienes órdenes como anunciante para medirla; como tomador pagaste 0 %. Si como anunciante tampoco pagas, el neto sería ${conSigno(a.neto_sin_comision_pct, 2)} %.`
+        : `Tu comisión real como anunciante es ${num(medida, 2)} % (medida en tus órdenes). Sin comisión el neto sería ${conSigno(a.neto_sin_comision_pct, 2)} %.`));
     poner("m-sugerencia", a.sugerido_compra && a.sugerido_venta
       ? `Para quedar de primero: tu anuncio de compra a ${num(a.sugerido_compra)} Bs y el de venta a ${num(a.sugerido_venta)} Bs.`
       : "");
@@ -401,48 +430,108 @@
       { titulo: "Pago", valor: (a) => (a.metodos || []).map((m) => METODO_CORTO[m] || m).join(" · ") },
       { titulo: "Anunciante", valor: (a) => el("span", {}, a.anunciante, el("span", { class: "etiqueta-chica", text: ` · ${num(a.ordenes_mes, 0)} órd. · ${num(a.tasa_completado * 100, 0)} %` })) },
     ], anuncios || [], "Sin detalle de anuncios todavía.");
+    limitarFilas($(selector), "tbody tr", 3);
   }
 
-  // ---- comparar bancos --------------------------------------------------------
+  // ---- listas largas: en el teléfono se ven las primeras filas y un botón "Ver todos" ----
 
-  let selectorBancos = false;
-
-  function renderBancos(d) {
-    const b = d.bancos;
-    if (!b) return;
-    const sel = $("#mi-banco");
-    if (!selectorBancos && b.disponibles) {
-      for (const [id, nombre] of Object.entries(b.disponibles).filter(([id]) => id !== "PagoMovil")) sel.append(el("option", { value: id, text: nombre }));
-      sel.addEventListener("change", async () => {
-        try { const r = await api("/api/bancos/mi-banco", { method: "POST", body: JSON.stringify({ banco: sel.value }) }); avisos([r.estrategia]); cargar(false); }
-        catch (err) { avisos([`No pude cambiar tu banco: ${err.message}`]); }
-      });
-      selectorBancos = true;
+  function limitarFilas(contenedor, selector, n) {
+    const filas = [...contenedor.querySelectorAll(selector)];
+    filas.forEach((f, i) => f.classList.toggle("oculta-movil", i >= n));
+    let boton = contenedor.nextElementSibling;
+    if (!boton || !boton.classList.contains("ver-todos")) {
+      boton = el("button", { type: "button", class: "ver-todos" });
+      boton.addEventListener("click", () => { contenedor.classList.toggle("abierta"); limitarFilas(contenedor, selector, n); });
+      contenedor.after(boton);
     }
-    sel.value = b.mi_banco;
+    boton.hidden = filas.length <= n;
+    boton.textContent = contenedor.classList.contains("abierta") ? "Ver menos" : `Ver todos (${filas.length})`;
+  }
+
+  // ---- estrategia: bancos, monto y margen -------------------------------------
+
+  let controlesEstrategia = false;
+  const nombreBanco = (d, id) => (d.estrategia.disponibles[id] || id);
+
+  async function cambiarEstrategia(cuerpo) {
+    try {
+      const r = await api("/api/estrategia", { method: "POST", body: JSON.stringify(cuerpo) });
+      avisos([r.mensaje]);
+      cargar(false);
+    } catch (err) { avisos([`No pude cambiar la estrategia: ${err.message}`]); }
+  }
+
+  function iniciarControlesEstrategia(d) {
+    const compra = $("#e-compra"), venta = $("#e-venta"), margen = $("#e-margen"), auto = $("#monto-auto");
+    for (const [id, nombre] of Object.entries(d.estrategia.disponibles)) {
+      compra.append(el("option", { value: id, text: nombre }));
+      venta.append(el("option", { value: id, text: nombre }));
+    }
+    compra.addEventListener("change", () => cambiarEstrategia({ banco_compra: compra.value }));
+    venta.addEventListener("change", () => cambiarEstrategia({ banco_venta: venta.value }));
+    margen.addEventListener("change", () => { if (margen.value !== "") cambiarEstrategia({ margen_minimo_pct: Number(margen.value) }); });
+    auto.addEventListener("change", () => cambiarEstrategia({ monto_auto: auto.checked }));
+    controlesEstrategia = true;
+  }
+
+  function renderEstrategia(d) {
+    const e = d.estrategia, b = d.bancos, m = d.montos;
+    if (!e) return;
+    if (!controlesEstrategia) iniciarControlesEstrategia(d);
+    $("#e-compra").value = e.banco_compra;
+    $("#e-venta").value = e.banco_venta;
+    if (document.activeElement !== $("#e-margen")) $("#e-margen").value = e.margen_minimo_pct;
+    $("#monto-auto").checked = !!e.monto_auto;
+    poner("estrategia-resumen", `Ahora: ${e.descripcion}.`);
+
+    const rutaBadge = (r) => el("span", { class: r === "BDV" ? "estado-ok" : "estado-neutro", text: r === "BDV" ? "Mismo banco" : "Con costo interbancario" });
+    const usar = (cuerpo, enUso) => enUso ? el("span", { class: "etiqueta-chica", text: "en uso" })
+      : el("button", { type: "button", class: "boton secundario chico", text: "Usar", onclick: () => cambiarEstrategia(cuerpo) });
+    const mejorNeto = b.bancos.length ? Math.max(...b.bancos.filter((f) => !f.poca_liquidez).map((f) => f.neto_pct)) : null;
+    const alertaLiquidez = (n, texto) => n.poca_liquidez
+      ? el("span", { class: "estado-alerta", title: "Pocos anuncios: el precio puede no ser real", text: texto }) : texto;
+
     poner("bancos-reco", b.recomendacion || "");
-    const mejor = b.bancos.length ? Math.max(...b.bancos.map((f) => f.neto_pct)) : null;
-    const rutaBadge = (r) => el("span", { class: r === "BDV" ? "estado-ok" : "estado-neutro", text: r === "BDV" ? "Mismo banco" : "Interbancario" });
     G.tabla($("#bancos-tabla"), [
-      { titulo: "Banco", valor: (f) => el("span", {}, el("strong", { text: f.nombre }), f.es_tu_banco ? el("span", { class: "etiqueta-chica", text: " · tu banco" }) : null) },
+      { titulo: "Banco (compras y vendes con él)", valor: (f) => el("strong", { text: f.nombre }) },
       { titulo: "Compras a", num: true, valor: (f) => num(f.precio_compra) },
       { titulo: "Vendes a", num: true, valor: (f) => num(f.precio_venta) },
       { titulo: "Brecha", num: true, valor: (f) => `${num(f.spread_pct, 2)} %` },
-      { titulo: "Neto por vuelta", num: true, valor: (f) => el("strong", { class: f.neto_pct === mejor ? "mejor" : f.neto_pct < 0 ? "neg" : "", text: `${conSigno(f.neto_pct, 2)} %` }) },
-      { titulo: "Pagas con", valor: (f) => rutaBadge(f.ruta) },
-      { titulo: "Anuncios", num: true, valor: (f) => f.poca_liquidez ? el("span", { class: "estado-alerta", title: "Pocos anuncios: el precio puede no ser real", text: `${f.anuncios_compra}/${f.anuncios_venta}` }) : `${f.anuncios_compra}/${f.anuncios_venta}` },
+      { titulo: "Neto por vuelta", num: true, valor: (f) => el("strong", { class: f.neto_pct === mejorNeto ? "mejor" : f.neto_pct < 0 ? "neg" : "", text: `${conSigno(f.neto_pct, 2)} %` }) },
+      { titulo: "Anuncios", num: true, valor: (f) => alertaLiquidez(f, `${f.anuncios_compra}/${f.anuncios_venta}`) },
       { titulo: "Liquidez USDT", num: true, valor: (f) => compacto(f.liquidez_usdt) },
+      { titulo: "", valor: (f) => usar({ banco_compra: f.banco, banco_venta: f.banco }, f.en_uso) },
     ], b.bancos, "Todavía no hay datos de los bancos (se consultan cada pocos minutos).");
+    limitarFilas($("#bancos-tabla"), "tbody tr", 5);
+
     G.tabla($("#bancos-combos"), [
       { titulo: "Compras con", valor: (c) => c.compra_nombre },
       { titulo: "A", num: true, valor: (c) => num(c.precio_compra) },
       { titulo: "Vendes con", valor: (c) => c.venta_nombre },
       { titulo: "A", num: true, valor: (c) => num(c.precio_venta) },
       { titulo: "Neto por vuelta", num: true, valor: (c) => el("strong", { text: `${conSigno(c.neto_pct, 2)} %` }) },
-      { titulo: "Pagas con", valor: (c) => rutaBadge(c.ruta) },
+      { titulo: "Dinero entre tus cuentas", valor: (c) => rutaBadge(c.ruta) },
+      { titulo: "", valor: (c) => usar({ banco_compra: c.compra_banco, banco_venta: c.venta_banco }, c.en_uso) },
     ], b.combinaciones, "Sin datos todavía.");
-    poner("bancos-nota", `Calculado como anunciante, con tus costos y pagando desde ${b.mi_banco_nombre}. ` +
-      (b.actualizado_ms ? `Actualizado ${hace(b.actualizado_ms)}.` : ""));
+    limitarFilas($("#bancos-combos"), "tbody tr", 3);
+
+    poner("montos-reco", m.recomendacion || "");
+    G.tabla($("#montos-tabla"), [
+      { titulo: "Monto por orden", num: true, valor: (t) => el("strong", { text: `Bs ${num(t.monto_bs, 0)}` }) },
+      { titulo: "≈ USDT", num: true, valor: (t) => num(t.monto_usdt, 0) },
+      { titulo: "Compras a", num: true, valor: (t) => num(t.precio_compra) },
+      { titulo: "Vendes a", num: true, valor: (t) => num(t.precio_venta) },
+      { titulo: "Neto por vuelta", num: true, valor: (t) => el("strong", { class: t.mejor ? "mejor" : t.neto_pct < 0 ? "neg" : "", text: `${conSigno(t.neto_pct, 2)} %` }) },
+      { titulo: "Ganas (Bs)", num: true, valor: (t) => conSigno(t.ganancia_bs, 0) },
+      { titulo: "Anuncios", num: true, valor: (t) => alertaLiquidez(t, `${t.anuncios_compra}/${t.anuncios_venta}`) },
+      { titulo: "", valor: (t) => usar({ monto_bs: t.monto_bs }, t.monto_bs === m.monto_actual_bs) },
+    ], m.tramos, "Todavía no hay datos por monto (se consultan cada pocos minutos).");
+    const quitar = $("#montos-quitar");
+    if (m.monto_actual_bs && !quitar) {
+      $("#estrategia-nota").after(el("button", { type: "button", id: "montos-quitar", class: "ver-todos visible", text: "Quitar filtro por monto", onclick: () => cambiarEstrategia({ monto_bs: 0 }) }));
+    } else if (!m.monto_actual_bs && quitar) quitar.remove();
+    poner("estrategia-nota", (m.monto_actual_bs ? `Operando con montos de ~Bs ${num(m.monto_actual_bs, 0)}. ` : "Sin filtro por monto. ")
+      + `Datos de bancos y montos: ${b.actualizado_ms ? hace(b.actualizado_ms) : "pendiente"}. Calculado como anunciante, con tus costos.`);
   }
 
   // ---- tu operación ----------------------------------------------------------
@@ -576,9 +665,10 @@
           el("button", { type: "button", class: "boton secundario", text: "Copiar", onclick: (e) => copiar(cuerpo, e.currentTarget) })),
         el("pre", { text: cuerpo }));
       textos.append(
-        bloque("Términos del anuncio de compra (titular, método de pago, cancelación)", t.compra),
-        bloque("Términos del anuncio de venta (titular, método de pago, cancelación)", t.venta),
-        bloque("Respuesta automática del chat (para ambos)", t.respuesta),
+        bloque("Anuncio de COMPRA · términos (titular, método de pago, cancelación)", t.compra),
+        bloque("Anuncio de COMPRA · respuesta automática del chat", t.respuesta_compra),
+        bloque("Anuncio de VENTA · términos (titular, método de pago, cancelación)", t.venta),
+        bloque("Anuncio de VENTA · respuesta automática del chat", t.respuesta_venta),
         el("div", { class: "texto-anuncio" }, el("h3", { text: "Condiciones de la contraparte (sugeridas)" }),
           el("ul", { class: "pasos" }, ...t.condiciones.map((c) => el("li", { text: c })))));
     }
@@ -857,6 +947,7 @@
     for (const e of d.decisiones || []) {
       lista.append(el("li", {}, el("time", { text: fechaHora(e.ts_ms) }), el("span", { text: e.mensaje })));
     }
+    limitarFilas(lista, "li", 3);
     $("#decisiones-vacio").hidden = !!(d.decisiones || []).length;
     poner("decisiones-estado", d.config.pagos_automaticos ? "Pagos automáticos: activados" : "Pagos automáticos: apagados");
   }
@@ -1051,13 +1142,6 @@
         reinvertir: f.reinvertir.checked, precio_compra: opcional(f.precio_compra.value),
         precio_venta: opcional(f.precio_venta.value) };
     };
-    $("#sim-aplicar").addEventListener("click", async () => {
-      try {
-        const r = await api("/api/simulacion/ciclos", { method: "POST", body: JSON.stringify(cuerpoSim()) });
-        poner("sim-resultado", `Listo: creé ${r.ordenes_creadas} órdenes simuladas (${r.ciclos} ciclos). Mira los indicadores y las tablas.`);
-        cargar(false);
-      } catch (err) { poner("sim-resultado", `No pude aplicar los ciclos: ${err.message}`); }
-    });
     $("#sim-reiniciar").addEventListener("click", async () => {
       const ejemplo = confirm("¿Reiniciar la simulación? Se borra todo lo simulado.\n\nAceptar = empezar de cero.\nCancelar = no hacer nada.");
       if (!ejemplo) return;

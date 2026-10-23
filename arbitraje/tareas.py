@@ -10,10 +10,11 @@ import httpx
 
 from . import anuncios as mod_anuncios
 from . import bancos as mod_bancos
+from . import estrategia as mod_estrategia, montos as mod_montos
 from . import banco, binance_api, ganancias, identidad as mod_identidad, mercado, pagos as mod_pagos
-from .config import RUTA_BDV, RUTA_INTERBANCARIA, Config
+from .config import Config
 from .db import BaseDatos
-from .notificaciones import Avisos, Telegram, WhatsApp
+from .notificaciones import Avisos, Telegram
 from .utilidades import DIA_MS, MINUTO_MS, ahora_ms, formato_numero, rango_periodo
 
 log = logging.getLogger(__name__)
@@ -31,8 +32,7 @@ class Motor:
         self.db = db
         self.http = http or httpx.AsyncClient(timeout=20)
         self.telegram = Telegram(cfg.alertas.telegram_token, cfg.alertas.telegram_chat_id, self.http)
-        self.whatsapp = WhatsApp(cfg.alertas.whatsapp_telefono, cfg.alertas.whatsapp_apikey, self.http)
-        self.avisos = Avisos(self.telegram, self.whatsapp)
+        self.avisos = Avisos(self.telegram)
         self.binance = (
             binance_api.ClienteBinance(cfg.binance.api_key, cfg.binance.api_secret, cfg.binance.url_api, self.http)
             if cfg.binance.tiene_claves
@@ -59,6 +59,8 @@ class Motor:
         self.anuncios_propios: set[str] = set()  # advNo de tus anuncios, para no competir contra ti
         self.ultima_cotizacion: mercado.Cotizacion | None = None
         self.bancos_cotizaciones: list = []
+        self.montos_cotizaciones: list = []
+        self.montos_ts: int | None = None
         self.bancos_ts: int | None = None
         self._ultima_alerta: dict[str, int] = {}
         self._reposicion_previa: dict[str, float] = {}
@@ -66,8 +68,8 @@ class Motor:
         self._tareas: list[asyncio.Task] = []
         self._candado_sync = asyncio.Lock()
         self._candado_anuncios = asyncio.Lock()
-        if db.leer_estado("mi_banco") in mod_bancos.BANCOS:
-            self.aplicar_banco(db.leer_estado("mi_banco"))
+        self.estrategia = mod_estrategia.cargar(db, cfg)
+        mod_estrategia.aplicar(cfg, self.estrategia)
 
     # ---- ciclo de vida -------------------------------------------------------------
 
@@ -79,6 +81,8 @@ class Motor:
             minutos = 1.0 if self.cfg.pagos.automatico else self.cfg.binance.intervalo_sync_min
             self._tareas.append(asyncio.create_task(self._repetir(minutos * 60, self.sincronizar)))
         self._tareas.append(asyncio.create_task(self._repetir(self.cfg.mercado.intervalo_bancos_seg, self.actualizar_bancos)))
+        self._tareas.append(asyncio.create_task(self._repetir(self.cfg.mercado.intervalo_bancos_seg, self.actualizar_montos,
+                                                          retraso_seg=self.cfg.mercado.intervalo_bancos_seg / 2)))
         if self.cfg.anuncios.automatico:
             self._tareas.append(asyncio.create_task(self._repetir(self.cfg.anuncios.intervalo_seg, self.reposicionar)))
         if self.avisos.activo and self.cfg.alertas.resumen_diario_hora:
@@ -91,7 +95,9 @@ class Motor:
         self._tareas.clear()
         await self.http.aclose()
 
-    async def _repetir(self, intervalo_seg: float, trabajo) -> None:
+    async def _repetir(self, intervalo_seg: float, trabajo, retraso_seg: float = 0.0) -> None:
+        if retraso_seg:
+            await asyncio.sleep(retraso_seg)   # escalona tareas que consultan a Binance para no hacer ráfagas
         while True:
             try:
                 await trabajo()
@@ -146,49 +152,99 @@ class Motor:
             return
         self.bancos_ts = ahora_ms()
 
-    def aplicar_banco(self, banco: str) -> None:
-        """Pone TODA la estrategia a trabajar con un banco: qué anuncios busca, cómo calcula costos y qué banco usa por defecto."""
-        c = self.cfg
-        ruta = RUTA_INTERBANCARIA if banco == "PagoMovil" else RUTA_BDV  # operar con tu banco = pagos "mismo banco"
-        c.mercado.mi_banco = banco
-        c.mercado.metodos_pago = [banco]
-        c.anuncios.metodos_compra = [banco]
-        c.anuncios.ruta = ruta
-        c.banco.ruta_por_defecto = ruta
-        c.pagos.banco_por_defecto = mod_bancos.CODIGOS.get(banco, c.pagos.banco_por_defecto)
-        self._reposicion_previa.clear()
+    # ---- estrategia: bancos, monto y margen ------------------------------------------
 
-    async def cambiar_banco(self, banco: str) -> str:
-        """Cambia el banco de trabajo, vuelve a leer el mercado con ese banco y deja constancia de lo que decide."""
-        self.db.escribir_estado("mi_banco", banco)
-        self.aplicar_banco(banco)
-        nombre = mod_bancos.BANCOS.get(banco, banco)
-        await self.actualizar_mercado()
+    def capital_bs(self) -> float:
+        """Tu capital de trabajo en bolívares al precio de compra actual."""
+        precio = (self.ultima_cotizacion.precio_compra if self.ultima_cotizacion else None) \
+            or (self.db.ultima_cotizacion() or {}).get("precio_compra") or 1000.0
+        return self.cfg.general.capital_usdt * precio
+
+    async def actualizar_montos(self) -> None:
+        """Mide el rendimiento por tramo de monto con tu modalidad (y, si lo pediste, aplica el mejor)."""
+        tramos = mod_montos.tramos_para(self.capital_bs())
+        e = self.estrategia
+        try:
+            if self.simulador and not self.cfg.precios_reales:
+                self.montos_cotizaciones = mod_montos.simuladas(self.db.ultima_cotizacion(), tramos)
+            else:
+                self.montos_cotizaciones = await mod_montos.consultar(
+                    self.http, self.cfg, e.banco_compra, e.banco_venta, tramos)
+        except (httpx.HTTPError, mercado.ErrorMercado) as err:
+            log.warning("No pude estudiar los montos: %s", _describir(err))
+            return
+        self.montos_ts = ahora_ms()
+        if e.monto_auto:
+            await self._aplicar_mejor_monto()
+
+    def analisis_montos(self) -> dict:
+        e = self.estrategia
+        datos = mod_montos.analizar(self.montos_cotizaciones, self.cfg.costos, e.ruta, self.cfg.costos.tick_bs,
+                                    e.margen_minimo_pct)
+        datos["actualizado_ms"] = self.montos_ts
+        datos["monto_actual_bs"] = e.monto_bs or None
+        datos["auto"] = e.monto_auto
+        return datos
+
+    def analisis_bancos(self) -> dict:
+        e = self.estrategia
+        datos = mod_bancos.analizar(self.bancos_cotizaciones, self.cfg.costos, self.cfg.costos.tick_bs,
+                                    e.banco_compra, e.banco_venta)
+        datos["actualizado_ms"] = self.bancos_ts
+        datos["disponibles"] = mod_bancos.BANCOS
+        return datos
+
+    def datos_estrategia(self) -> dict:
+        e = self.estrategia
+        return {**asdict(e), "ruta": e.ruta, "descripcion": e.describir(), "disponibles": mod_bancos.BANCOS}
+
+    async def _aplicar_mejor_monto(self) -> None:
+        datos = self.analisis_montos()
+        mejor = next((t for t in datos["tramos"] if t["mejor"]), None)
+        actual = next((t for t in datos["tramos"] if t["monto_bs"] == self.estrategia.monto_bs), None)
+        if not mejor or mejor["monto_bs"] == self.estrategia.monto_bs:
+            return
+        if actual and mejor["neto_pct"] - actual["neto_pct"] < 0.10:   # no cambiar por diferencias mínimas
+            return
+        await self.cambiar_estrategia({"monto_bs": mejor["monto_bs"]}, motivo="automático")
+
+    async def cambiar_estrategia(self, cambios: dict, motivo: str = "manual") -> str:
+        """Cambia banco de compra/venta, monto, margen o el modo automático; lo aplica a todo y deja constancia."""
+        actual = asdict(self.estrategia)
+        nuevos = {k: v for k, v in cambios.items() if v is not None and k in actual and actual[k] != v}
+        for k in ("banco_compra", "banco_venta"):
+            if k in nuevos and nuevos[k] not in mod_bancos.BANCOS:
+                raise ValueError(f"Banco desconocido: {nuevos[k]}")
+        if not nuevos:
+            return f"Sin cambios: {self.estrategia.describir()}."
+        self.estrategia = mod_estrategia.Estrategia(**{**actual, **nuevos})
+        mod_estrategia.guardar(self.db, self.estrategia)
+        mod_estrategia.aplicar(self.cfg, self.estrategia)
+        self._reposicion_previa.clear()
+        if nuevos.keys() <= {"monto_auto"}:
+            texto = "Elegir el mejor monto solo: " + ("activado." if self.estrategia.monto_auto else "desactivado.")
+            self.decidir(texto)
+            return texto
+        if nuevos.keys() & {"banco_compra", "banco_venta", "monto_bs"}:
+            await self.actualizar_mercado()
+        partes = [f"Estrategia ({motivo}): {self.estrategia.describir()}."]
         cot = self.ultima_cotizacion
-        if cot is None or not cot.precio_compra or not cot.precio_venta:
-            texto = (f"Ahora opero con {nombre}: busco anuncios solo con ese banco. "
-                     "Todavía no hay anuncios suficientes para calcular un margen.")
-        else:
+        if cot is not None and cot.precio_compra and cot.precio_venta:
             plan = mod_anuncios.planear(cot, self.cfg.costos, self.cfg.anuncios)
-            minimo = self.cfg.anuncios.margen_minimo_pct
-            texto = (f"Ahora opero con {nombre}: busco anuncios solo con ese banco y calculo los pagos como "
-                     + ("entre cuentas del mismo banco (sin costo). " if banco != "PagoMovil" else "Pago Móvil (con costo interbancario). ")
-                     + f"Margen por vuelta ahora: {formato_numero(plan.margen_pct)} % (tu mínimo es {minimo:g} %). "
-                     + ("Conviene publicar." if plan.margen_pct >= minimo else "Todavía no conviene: espero a que se abra la brecha."))
+            minimo = self.estrategia.margen_minimo_pct
+            partes.append(f"Margen por vuelta ahora: {formato_numero(plan.margen_pct)} %: "
+                          + ("conviene publicar." if plan.margen_pct >= minimo
+                             else "todavía no conviene publicar; espero a que se abra la brecha."))
+        else:
+            partes.append("Todavía no hay anuncios suficientes para calcular el margen.")
+        if self.estrategia.monto_bs:
+            partes.append(f"Tus anuncios deberían aceptar entre Bs {formato_numero(self.cfg.anuncios.min_bs, 0)} y "
+                          f"Bs {formato_numero(self.cfg.anuncios.max_bs, 0)} por orden.")
+        texto = " ".join(partes)
         self.decidir(texto)
         if self.cfg.anuncios.automatico:
             await self.reposicionar()
         return texto
-
-    def mi_banco(self) -> str:
-        elegido = self.db.leer_estado("mi_banco")
-        return elegido if elegido in mod_bancos.BANCOS else self.cfg.mercado.mi_banco
-
-    def analisis_bancos(self) -> dict:
-        datos = mod_bancos.analizar(self.bancos_cotizaciones, self.cfg.costos, self.mi_banco(), self.cfg.costos.tick_bs)
-        datos["actualizado_ms"] = self.bancos_ts
-        datos["disponibles"] = mod_bancos.BANCOS
-        return datos
 
     async def _revisar_oportunidad(self, c: mercado.Cotizacion) -> None:
         if c.precio_compra is None or c.precio_venta is None:
@@ -384,15 +440,6 @@ class Motor:
             self.estado["anuncios"]["error"] = None
             self.db.registrar_evento("decision", "Anuncios: " + " · ".join(a["texto"] for a in acciones))
         return acciones
-
-    async def _actualizar_propios(self) -> None:
-        """Refresca la lista de tus anuncios (para que el escáner no compita contra ti)."""
-        if not self.agente:
-            return
-        try:
-            self.anuncios_propios = {a.numero for a in await self.agente.listar()}
-        except (httpx.HTTPError, binance_api.ErrorBinance):
-            pass
 
     # ---- órdenes de Binance --------------------------------------------------------
 

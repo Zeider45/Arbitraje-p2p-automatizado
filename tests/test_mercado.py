@@ -79,3 +79,29 @@ def test_parsear_anuncios_lee_campos():
     assert anuncios[0].numero == "123"
     assert anuncios[0].precio == 1005.5
     assert anuncios[0].comerciante is True
+
+
+def test_descarta_anuncios_sin_stock_o_que_no_cumplen_su_minimo():
+    from arbitraje.config import Mercado
+    from arbitraje.mercado import Anuncio, filtrar
+
+    def anuncio(precio, disponible, min_bs, max_bs):
+        return Anuncio("n", precio, disponible, min_bs, max_bs, ["BancoDeVenezuela"], "x", 500, 0.99, False)
+
+    cfg = Mercado()
+    anuncios = [
+        anuncio(996.1, 0, 300, 398),            # sin USDT disponible
+        anuncio(995.0, 1, 300, 626),            # 1 USDT: no alcanza para ninguna orden útil pero cumple su mínimo
+        anuncio(990.0, 100, 500_000, 99_000),   # máximo menor que el mínimo
+        anuncio(999.9, 500, 50_000, 499_000),   # bueno
+    ]
+    precios = [a.precio for a in filtrar(anuncios, cfg)]
+    assert 996.1 not in precios and 990.0 not in precios and 999.9 in precios
+
+
+def test_monto_se_envia_a_binance_sin_perder_ceros():
+    from arbitraje.config import Mercado
+    from arbitraje.mercado import cuerpo_busqueda
+
+    for monto, esperado in ((50000, "50000"), (50000.0, "50000"), (100000.0, "100000"), (1234.5, "1234.5"), (1_000_000, "1000000")):
+        assert cuerpo_busqueda(Mercado(monto_bs=monto), "BUY")["transAmount"] == esperado

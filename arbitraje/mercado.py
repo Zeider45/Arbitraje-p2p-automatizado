@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
 from dataclasses import asdict, dataclass, field, replace
 
 import httpx
@@ -28,6 +29,7 @@ CABECERAS = {
     "clienttype": "web",
     "lang": "es",
 }
+POCOS_ANUNCIOS = 3  # con menos anuncios que esto, un precio puede no ser real
 COMPRAR = "BUY"  # anuncios donde puedes comprar USDT (vendedores)
 VENDER = "SELL"  # anuncios donde puedes vender USDT (compradores)
 
@@ -48,6 +50,12 @@ class Anuncio:
     ordenes_mes: int
     tasa_completado: float  # de 0 a 1
     comerciante: bool
+
+    @property
+    def operable(self) -> bool:
+        """Con USDT disponible y capaz de cumplir al menos su propia orden mínima (si no, su precio engaña)."""
+        return (self.disponible > 0 and self.disponible * self.precio >= self.min_bs
+                and not (self.max_bs and self.max_bs < self.min_bs))
 
 
 @dataclass
@@ -72,6 +80,12 @@ class Cotizacion:
         return fila
 
 
+def metodos_del_lado(cfg: Mercado, lado: str) -> list[str]:
+    """Métodos de pago de cada lado: compras con tu banco de compra y vendes con tu banco de venta."""
+    banco = cfg.banco_compra if lado == COMPRAR else cfg.banco_venta
+    return [banco] if banco else list(cfg.metodos_pago)
+
+
 def cuerpo_busqueda(cfg: Mercado, lado: str, pagina: int = 1) -> dict:
     cuerpo = {
         "asset": cfg.activo,
@@ -79,7 +93,7 @@ def cuerpo_busqueda(cfg: Mercado, lado: str, pagina: int = 1) -> dict:
         "tradeType": lado,
         "page": pagina,
         "rows": FILAS_POR_PAGINA,
-        "payTypes": list(cfg.metodos_pago),
+        "payTypes": metodos_del_lado(cfg, lado),
         "publisherType": "merchant" if cfg.solo_comerciantes else None,
         "countries": [],
         "proMerchantAds": False,
@@ -91,7 +105,7 @@ def cuerpo_busqueda(cfg: Mercado, lado: str, pagina: int = 1) -> dict:
     }
     if cfg.monto_bs > 0:
         # Binance devuelve solo anuncios que aceptan este monto
-        cuerpo["transAmount"] = str(round(cfg.monto_bs, 2)).rstrip("0").rstrip(".")
+        cuerpo["transAmount"] = f"{float(cfg.monto_bs):.2f}".rstrip("0").rstrip(".")
     return cuerpo
 
 
@@ -128,7 +142,7 @@ def parsear_anuncios(datos: dict) -> list[Anuncio]:
 
 
 def filtrar(anuncios: list[Anuncio], cfg: Mercado, propios: set[str] | frozenset[str] = frozenset()) -> list[Anuncio]:
-    """Descarta anuncios poco confiables, los tuyos y los que no aceptan tu monto.
+    """Descarta anuncios poco confiables, sin stock, los tuyos y los que no aceptan tu monto.
 
     `propios` son los números de tus anuncios: sin esto el bot de anuncios competiría
     contra sí mismo y subiría el precio en cada vuelta.
@@ -142,6 +156,8 @@ def filtrar(anuncios: list[Anuncio], cfg: Mercado, propios: set[str] | frozenset
         if a.ordenes_mes < cfg.min_ordenes_mes or a.tasa_completado < tasa_minima:
             continue
         if cfg.solo_comerciantes and not a.comerciante:
+            continue
+        if not a.operable:   # sin stock su precio engaña: contaminaba el "mejor precio" del mercado
             continue
         if cfg.monto_bs > 0:
             if (a.min_bs and cfg.monto_bs < a.min_bs) or (a.max_bs and cfg.monto_bs > a.max_bs):
@@ -219,6 +235,34 @@ async def buscar(http: httpx.AsyncClient, cfg: Config, lado: str, propios: froze
     validos = filtrar(todos, cfg.mercado, propios)
     validos.sort(key=lambda a: a.precio, reverse=(lado == VENDER))
     return validos
+
+
+async def buscar_ambos_lados(http: httpx.AsyncClient, cfg: Config) -> tuple[list[Anuncio], list[Anuncio]]:
+    """(anuncios para comprar, anuncios para vender) en paralelo, con los filtros y bancos de `cfg`."""
+    compra, venta = await asyncio.gather(buscar(http, cfg, COMPRAR), buscar(http, cfg, VENDER))
+    return compra, venta
+
+
+class CacheTTL:
+    """Guarda resultados unos minutos (compartido entre el modo real y la simulación) y descarta lo vencido."""
+
+    def __init__(self, ttl_seg: float = 240.0):
+        self.ttl = ttl_seg
+        self._datos: dict = {}
+
+    def obtener(self, clave):
+        guardado = self._datos.get(clave)
+        return guardado[1] if guardado and time.monotonic() - guardado[0] < self.ttl else None
+
+    def guardar(self, clave, valor) -> None:
+        ahora = time.monotonic()
+        self._datos = {k: v for k, v in self._datos.items() if ahora - v[0] < self.ttl}
+        self._datos[clave] = (ahora, valor)
+
+
+def neto_sin_comision(precio_compra: float, precio_venta: float, costos: Costos, ruta: str, tick: float) -> float:
+    """Neto por vuelta como anunciante si Binance no te cobrara comisión (para compararlo con el supuesto de config)."""
+    return neto_entre_anuncios(precio_venta + tick, precio_compra - tick, replace(costos, comision_anunciante_pct=0.0), ruta)
 
 
 async def consultar(http: httpx.AsyncClient, cfg: Config, propios: frozenset[str] | set[str] = frozenset()) -> Cotizacion:

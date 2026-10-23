@@ -673,15 +673,8 @@ th:last-child, td:last-child { padding-right: 0; }
 .dos-tablas .tabla-envoltura { max-height: none; overflow-x: auto; }
 .dos-tablas td, .dos-tablas th { padding-right: 14px; }
 .dos-tablas tbody tr:first-child td { font-weight: 600; }
-.bancos .cabecera { align-items: flex-end; }
-.mi-banco { flex-direction: row; align-items: center; gap: 10px; white-space: nowrap; }
-.mi-banco select { min-width: 190px; }
 .reco-bancos { font-size: 15px; line-height: 1.6; margin: 0 0 22px; max-width: 70ch; }
-.bancos .tabla-envoltura { max-height: none; margin-bottom: 8px; }
-.bancos strong.mejor { color: var(--bien); }
-.bancos strong.neg { color: var(--critico); }
 .etiqueta-chica { color: var(--tinta-3); font-size: 12px; }
-.bancos h3 { margin-top: 28px; }
 @media (max-width: 1000px) { .dos-tablas { grid-template-columns: 1fr; } }
 @media (min-width: 1100px) {
   main, .barra, .pie { max-width: 1240px; }
@@ -700,3 +693,49 @@ th:last-child, td:last-child { padding-right: 0; }
 .texto-cabecera { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 8px; }
 .texto-anuncio h3 { margin: 0; font-size: 14px; color: var(--tinta-1); }
 .texto-anuncio pre { margin: 0; white-space: pre-wrap; font: inherit; font-size: 13.5px; line-height: 1.6; color: var(--tinta-2); background: var(--lavado); border-radius: 12px; padding: 16px 18px; }
+
+/* ======== teléfono: menos scroll ======== */
+.ver-todos { display: none; }
+.seccion > .cabecera h2 { display: none; }
+@media (max-width: 720px) {
+  tr.oculta-movil, li.oculta-movil { display: none; }
+  .abierta tr.oculta-movil { display: table-row; }
+  .abierta li.oculta-movil { display: grid; }
+  .ver-todos {
+    display: block; width: 100%; margin: 8px 0 0; padding: 10px; border: 0; border-radius: 999px;
+    background: var(--lavado); color: var(--tinta-1); font: inherit; font-size: 13.5px; font-weight: 550; cursor: pointer;
+  }
+  .ver-todos[hidden] { display: none; }
+  .mejores { margin-top: 20px; }
+  .lista-decisiones { max-height: none; }
+  .decisiones .cabecera .sub { display: none; }
+  .kpis-extra { margin-top: 16px; }
+  .reco-bancos { font-size: 14px; margin-bottom: 14px; }
+}
+@media (max-width: 720px) {
+  /* tablas anchas: en el teléfono solo lo esencial, sin scroll horizontal */
+  .dos-tablas :is(th, td):nth-child(3), .dos-tablas :is(th, td):nth-child(4) { display: none; }
+  .dos-tablas td:last-child { white-space: normal; }
+  #bancos-tabla :is(th, td):nth-child(2), #bancos-tabla :is(th, td):nth-child(3), #bancos-tabla :is(th, td):nth-child(4), #bancos-tabla :is(th, td):nth-child(6), #bancos-tabla :is(th, td):nth-child(7) { display: none; }
+  #bancos-combos :is(th, td):nth-child(2), #bancos-combos :is(th, td):nth-child(4), #bancos-combos :is(th, td):nth-child(6) { display: none; }
+  th, td { padding-right: 12px; }
+  th.num, td.num { padding-left: 12px; padding-right: 12px; }
+  th:last-child, td:last-child { padding-right: 0; }
+}
+
+.boton.chico { padding: 5px 14px; font-size: 13px; }
+.ver-todos.visible { display: inline-block; width: auto; margin-top: 12px; padding: 8px 16px; border: 0; border-radius: 999px; background: var(--lavado); color: var(--tinta-1); font: inherit; font-size: 13.5px; cursor: pointer; }
+@media (max-width: 720px) {
+  #montos-tabla :is(th, td):nth-child(2), #montos-tabla :is(th, td):nth-child(3), #montos-tabla :is(th, td):nth-child(4), #montos-tabla :is(th, td):nth-child(7) { display: none; }
+}
+
+/* ======== estrategia ======== */
+.controles-estrategia { display: flex; flex-wrap: wrap; gap: 14px 28px; align-items: flex-end; margin: 4px 0 8px; }
+.controles-estrategia label { flex-direction: column; min-width: 190px; }
+.controles-estrategia input[type="number"] { width: 120px; }
+.controles-estrategia .casilla { flex-direction: row; min-width: 0; margin: 0 0 8px; }
+.estrategia .tabla-envoltura { max-height: none; margin-bottom: 8px; }
+.estrategia strong.mejor { color: var(--bien); }
+.estrategia strong.neg { color: var(--critico); }
+.estrategia .titulo-bloque { margin-top: 32px; }
+@media (max-width: 720px) { .controles-estrategia label { min-width: 100%; } .controles-estrategia input[type="number"] { width: 100%; } }
