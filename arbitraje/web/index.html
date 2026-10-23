@@ -46,9 +46,14 @@
     </div>
     <div class="acciones">
       <button type="button" class="boton boton-operativa" id="btn-operativa">⏸ Pausar operatividad</button>
-      <button type="button" class="boton" id="btn-sync">Sincronizar con Binance</button>
-      <a class="boton secundario" id="exp-ordenes" href="/api/exportar/ordenes.csv">Exportar órdenes</a>
-      <a class="boton secundario" id="exp-ciclos" href="/api/exportar/ciclos.csv">Exportar ciclos</a>
+      <details class="mas-acciones">
+        <summary class="boton secundario">Más</summary>
+        <div class="menu">
+          <button type="button" class="boton secundario" id="btn-sync">Sincronizar con Binance</button>
+          <a class="boton secundario" id="exp-ordenes" href="/api/exportar/ordenes.csv">Exportar órdenes</a>
+          <a class="boton secundario" id="exp-ciclos" href="/api/exportar/ciclos.csv">Exportar ciclos</a>
+        </div>
+      </details>
     </div>
   </nav>
 
@@ -69,6 +74,9 @@
       <p class="valor"><span id="k-roi">—</span><span class="unidad">%</span></p>
       <p class="detalle" id="k-roi-det">—</p>
     </article>
+  </section>
+  <details class="seccion mas-indicadores"><summary>Más indicadores</summary>
+    <div class="kpis kpis-extra">
     <article class="tile">
       <h2 class="etiqueta">Spread capturado</h2>
       <p class="valor"><span id="k-spread">—</span><span class="unidad">%</span></p>
@@ -89,7 +97,8 @@
       <p class="valor"><span id="k-ordenes">—</span></p>
       <p class="detalle" id="k-ordenes-det">—</p>
     </article>
-  </section>
+    </div>
+  </details>
 
   <section class="tarjeta sesion" id="sesion" aria-labelledby="t-sesion">
     <header class="cabecera">
@@ -118,7 +127,7 @@
     <p class="sub" id="decisiones-vacio">Todavía no ha tomado ninguna decisión.</p>
   </section>
 
-  <section class="fila-2">
+  <section class="una-columna">
     <article class="tarjeta" aria-labelledby="t-mercado">
       <header class="cabecera">
         <h2 id="t-mercado">Mercado ahora</h2>
@@ -156,6 +165,7 @@
       </details>
     </article>
 
+    <details class="seccion"><summary>Tu operación</summary>
     <article class="tarjeta" aria-labelledby="t-operacion">
       <header class="cabecera">
         <h2 id="t-operacion">Tu operación</h2>
@@ -180,9 +190,11 @@
         <div><dt>Rotación del capital</dt><dd id="o-rotacion">—</dd></div>
       </dl>
     </article>
+    </details>
   </section>
 
-  <section class="tarjeta anuncios" aria-labelledby="t-anuncios">
+  <details class="seccion"><summary>Automatización de anuncios</summary>
+<section class="tarjeta anuncios" aria-labelledby="t-anuncios">
     <header class="cabecera">
       <div>
         <h2 id="t-anuncios">Automatización de anuncios</h2>
@@ -214,6 +226,9 @@
     <p class="aviso-inline" id="an-modo-real" hidden>Modo real activo: el bot mueve precios de verdad en tu cuenta de Binance.</p>
   </section>
 
+  
+  </details>
+
   <section class="tarjeta guia-manual" id="guia-manual" aria-labelledby="t-guia" hidden>
     <header class="cabecera">
       <div>
@@ -232,7 +247,8 @@
     <p class="sub" id="gm-nota"></p>
   </section>
 
-  <section class="tarjeta pago" aria-labelledby="t-pago">
+  <details class="seccion"><summary>Preparar un pago</summary>
+<section class="tarjeta pago" aria-labelledby="t-pago">
     <header class="cabecera">
       <div>
         <h2 id="t-pago">Preparar pago para la BDVApp</h2>
@@ -264,6 +280,9 @@
       <p class="resultado" id="pago-resultado" role="status"></p>
     </form>
   </section>
+
+  
+  </details>
 
   <section class="tarjeta simulador" id="tarjeta-simulador" aria-labelledby="t-simulador" hidden>
     <header class="cabecera">
@@ -305,7 +324,8 @@
     </div>
   </section>
 
-  <section class="graficos" aria-label="Gráficos">
+  <details class="seccion"><summary>Gráficos</summary>
+<section class="graficos" aria-label="Gráficos">
     <figure class="grafico" id="g-ganancia">
       <figcaption class="cabecera">
         <div>
@@ -355,7 +375,11 @@
     </figure>
   </section>
 
-  <section class="tarjeta tablas" aria-label="Detalle">
+  
+  </details>
+
+  <details class="seccion"><summary>Órdenes, ciclos, banco y eventos</summary>
+<section class="tarjeta tablas" aria-label="Detalle">
     <div class="pestanas" role="tablist">
       <button type="button" role="tab" aria-selected="true" aria-controls="p-ordenes" id="tab-ordenes">Órdenes <span class="contador" id="c-ordenes"></span></button>
       <button type="button" role="tab" aria-selected="false" aria-controls="p-ciclos" id="tab-ciclos">Ciclos <span class="contador" id="c-ciclos"></span></button>
@@ -370,7 +394,10 @@
     <div class="panel-pestana tabla-envoltura" id="p-eventos" role="tabpanel" aria-labelledby="tab-eventos" hidden></div>
   </section>
 
-  <section class="fila-2">
+  
+  </details>
+
+  <section class="fila-2 formularios">
     <details class="tarjeta formulario">
       <summary>Registrar una orden a mano</summary>
       <form id="f-orden" autocomplete="off">

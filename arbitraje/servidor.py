@@ -320,6 +320,7 @@ def config_simulacion(cfg: Config) -> Config:
     """
     sim = copy.deepcopy(cfg)
     sim.demo = True
+    sim.precios_reales = True  # el mercado es el real; solo el dinero, las órdenes y los ciclos son simulados
     sim.general.base_datos = str(Path(cfg.general.base_datos).with_name("demo.db"))
     sim.binance.api_key = sim.binance.api_secret = ""
     sim.alertas.telegram_token = sim.alertas.telegram_chat_id = ""

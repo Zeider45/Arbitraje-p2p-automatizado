@@ -108,7 +108,7 @@ class Motor:
 
     async def actualizar_mercado(self) -> mercado.Cotizacion | None:
         try:
-            if self.simulador:
+            if self.simulador and not self.cfg.precios_reales:
                 cotizacion = self.simulador.cotizar()
             else:
                 cotizacion = await mercado.consultar(self.http, self.cfg, frozenset(self.anuncios_propios))

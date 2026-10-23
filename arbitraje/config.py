@@ -150,6 +150,7 @@ class Config:
     banco: Banco = field(default_factory=Banco)
     panel: Panel = field(default_factory=Panel)
     demo: bool = False
+    precios_reales: bool = False   # simulación con el mercado P2P real (consulta pública, sin claves)
 
     @property
     def tz(self) -> ZoneInfo:

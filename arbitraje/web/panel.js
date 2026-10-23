@@ -1077,15 +1077,9 @@
       } catch (err) { poner("sim-resultado", `No pude aplicar los ciclos: ${err.message}`); }
     });
     $("#sim-reiniciar").addEventListener("click", async () => {
-      const ejemplo = confirm("¿Reiniciar la simulación? Se borra todo lo simulado.
-
-Aceptar = empezar de cero.
-Cancelar = no hacer nada.");
+      const ejemplo = confirm("¿Reiniciar la simulación? Se borra todo lo simulado.\n\nAceptar = empezar de cero.\nCancelar = no hacer nada.");
       if (!ejemplo) return;
-      const conEjemplo = confirm("¿Quieres cargar 45 días de datos de ejemplo?
-
-Aceptar = con datos de ejemplo.
-Cancelar = totalmente vacía.");
+      const conEjemplo = confirm("¿Quieres cargar 45 días de datos de ejemplo?\n\nAceptar = con datos de ejemplo.\nCancelar = totalmente vacía.");
       try {
         await api("/api/simulacion/reiniciar", { method: "POST", body: JSON.stringify({ capital: Number(f.capital.value) || 1000, con_ejemplo: conEjemplo }) });
         $("#sim-salida").hidden = true;

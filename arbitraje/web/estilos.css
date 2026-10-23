@@ -407,3 +407,40 @@ textarea { resize: vertical; }
 .pasos { margin: 0 0 14px; padding-left: 20px; display: grid; gap: 4px; font-size: 13.5px; color: var(--tinta-2); }
 .pasos strong { color: var(--tinta-1); }
 .guia-manual .an-lado { gap: 4px; }
+
+/* ---- vista simple y minimalista ---- */
+:root { --radio: 14px; --sombra: none; }
+body { font-size: 15px; }
+main { display: flex; flex-direction: column; gap: 20px; max-width: 980px; padding-top: 8px; }
+main > * { margin-top: 0 !important; }
+.barra { max-width: 980px; padding-top: 22px; padding-bottom: 10px; }
+h2 { font-size: 15px; }
+.tarjeta, .tile, .grafico { border-color: transparent; background: var(--superficie); box-shadow: 0 0 0 1px var(--borde); }
+.tarjeta { padding: 20px; }
+.kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.kpis .tile.hero { grid-row: auto; grid-column: span 2; padding: 28px 24px; align-items: flex-start; }
+.hero-valor { font-size: 56px; }
+.kpis-extra { grid-template-columns: repeat(2, minmax(0, 1fr)); margin-top: 12px; }
+.una-columna { display: flex; flex-direction: column; gap: 20px; }
+.fila-2.formularios { display: grid; margin-top: 0; }
+.seccion { border-radius: var(--radio); box-shadow: 0 0 0 1px var(--borde); background: var(--superficie); padding: 0 20px; }
+.seccion > summary { cursor: pointer; font-weight: 600; font-size: 14.5px; padding: 16px 0; list-style: none; display: flex; justify-content: space-between; align-items: center; }
+.seccion > summary::-webkit-details-marker { display: none; }
+.seccion > summary::after { content: "+"; color: var(--tinta-3); font-size: 18px; font-weight: 400; }
+.seccion[open] > summary::after { content: "–"; }
+.seccion[open] { padding-bottom: 20px; }
+.seccion > .tarjeta, .seccion > .graficos, .seccion > article { box-shadow: none; padding: 0; background: transparent; }
+.seccion > .tarjeta.tablas, .seccion > .tarjeta.anuncios { padding: 0; }
+.mas-acciones { position: relative; }
+.mas-acciones > summary { list-style: none; cursor: pointer; }
+.mas-acciones > summary::-webkit-details-marker { display: none; }
+.mas-acciones .menu { position: absolute; right: 0; top: calc(100% + 6px); z-index: 5; display: grid; gap: 6px; padding: 10px; min-width: 220px; background: var(--superficie); border-radius: 10px; box-shadow: var(--sombra-flotante); }
+.acciones { align-items: center; }
+.pie { max-width: 980px; }
+@media (max-width: 720px) {
+  .kpis { grid-template-columns: 1fr; }
+  .kpis .tile.hero { grid-column: auto; }
+  .hero-valor { font-size: 44px; }
+  .kpis-extra { grid-template-columns: 1fr; }
+  .tarjeta { padding: 16px; }
+}
