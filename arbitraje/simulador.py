@@ -8,8 +8,10 @@ No toca la base de datos ni Binance: es solo aritmética.
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
+from typing import Iterable
 
 from .config import RUTA_BDV, Costos
+from .utilidades import DIA_MS, HORA_MS, MINUTO_MS
 
 ROLES = ("anunciante", "tomador")
 MAX_CICLOS = 1000
@@ -110,3 +112,34 @@ def simular(
         "avisos": avisos,
         "filas": [asdict(f) for f in filas],
     }
+
+
+def ordenes_de_ciclos(
+    filas: Iterable[dict], moneda: str, p_compra: float, p_venta: float, costos: Costos, ruta: str, rol: str,
+    ahora_ms: int, ciclos_por_dia: float = 1.0, prefijo: str = "SIM",
+) -> list[dict]:
+    """Convierte los ciclos simulados en órdenes completadas (compra + venta) para verlas en el panel.
+
+    Se reparten hacia atrás desde ahora a razón de `ciclos_por_dia`, así los gráficos y el ROI reflejan la simulación.
+    """
+    filas = list(filas)
+    fee = (costos.comision_anunciante_pct if rol == "anunciante" else costos.comision_tomador_pct) / 100
+    paso = int(DIA_MS / ciclos_por_dia)
+    ordenes = []
+    for i, f in enumerate(filas):
+        t1 = ahora_ms - 2 * HORA_MS - (len(filas) - 1 - i) * paso
+        usdt = round(f["capital_inicio"] if moneda == "USDT" else f["capital_inicio"] / p_compra, 2)
+        piernas = [("VENTA", p_venta, t1), ("COMPRA", p_compra, t1 + 20 * MINUTO_MS)]
+        if moneda == "VES":
+            piernas.reverse()
+            piernas = [(piernas[0][0], piernas[0][1], t1), (piernas[1][0], piernas[1][1], t1 + 20 * MINUTO_MS)]
+        for tipo, precio, ts in piernas:
+            ordenes.append({
+                "numero": f"{prefijo}{ahora_ms}{f['n']:04d}{tipo[0]}", "origen": "demo", "tipo": tipo,
+                "cantidad": usdt, "precio": round(precio, 2), "total_bs": round(usdt * precio, 2),
+                "comision": round(usdt * fee, 4), "ruta_pago": ruta if tipo == "COMPRA" else None,
+                "metodo_pago": "BancoDeVenezuela" if tipo == "COMPRA" and ruta == RUTA_BDV else None,
+                "estado": "COMPLETED", "rol": "MAKER" if rol == "anunciante" else "TAKER",
+                "contraparte": "Simulado", "creada_ms": ts,
+            })
+    return ordenes

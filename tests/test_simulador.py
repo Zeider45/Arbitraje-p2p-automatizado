@@ -72,3 +72,36 @@ def test_endpoint_simulador(cliente):
     d = r.json()
     assert len(d["filas"]) == 5 and d["precios_de_mercado"] is False and d["ganancia"] > 0
     assert cliente.post("/api/simulador", json={"capital": -1}).status_code == 422
+
+
+def test_ordenes_de_ciclos_son_compra_y_venta_completadas():
+    from arbitraje.simulador import ordenes_de_ciclos
+
+    r = simular(1000, "USDT", 3, 100.0, 103.0, COSTOS)
+    ords = ordenes_de_ciclos(r["filas"], "USDT", 100.0, 103.0, COSTOS, "BDV", "anunciante", 1_800_000_000_000, 2)
+    assert len(ords) == 6 and {o["tipo"] for o in ords} == {"COMPRA", "VENTA"}
+    assert all(o["estado"] == "COMPLETED" and o["origen"] == "demo" for o in ords)
+    assert len({o["numero"] for o in ords}) == 6
+
+
+def test_simulacion_aplicar_y_reiniciar(tmp_path):
+    cfg = cargar(None, demo=True)
+    cfg.general.base_datos = str(tmp_path / "demo.db")
+    with TestClient(crear_app(cfg, iniciar_tareas=False)) as c:
+        c.post("/api/simulacion/reiniciar", json={"capital": 500})
+        assert c.get("/api/panel").json()["ordenes"] == []
+        r = c.post("/api/simulacion/ciclos", json={"capital": 500, "ciclos": 4, "precio_compra": 100, "precio_venta": 104})
+        assert r.json()["ordenes_creadas"] == 8
+        d = c.get("/api/panel").json()
+        assert len(d["ordenes"]) == 8 and d["resumen"]["capital_usdt"] == 500
+        c.post("/api/simulacion/reiniciar", json={"capital": 800, "con_ejemplo": True})
+        assert len(c.get("/api/panel").json()["ordenes"]) > 8
+
+
+def test_reiniciar_no_existe_en_modo_real(tmp_path):
+    cfg = cargar(None)
+    cfg.general.base_datos = str(tmp_path / "real.db")
+    cfg.panel.simulacion = False
+    with TestClient(crear_app(cfg, iniciar_tareas=False)) as c:
+        assert c.post("/api/simulacion/reiniciar", json={"capital": 500}).status_code == 403
+        assert c.post("/api/simulacion/ciclos", json={"capital": 500, "precio_compra": 100, "precio_venta": 104}).status_code == 403

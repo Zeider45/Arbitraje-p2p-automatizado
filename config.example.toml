@@ -47,7 +47,9 @@ tick_bs = 0.01                   # paso mínimo de precio para ponerte 1 lugar d
 [anuncios]
 # Repositor automático de TUS anuncios (lado anunciante del arbitraje).
 automatico = false               # true = el bot mueve tus precios solo
-modo = "simular"                 # "simular" (no toca Binance) | "real" (publica de verdad)
+modo = "simular"                 # "simular" (solo calcula) | "manual" (te avisa y tú editas el anuncio en Binance) | "real" (publica de verdad)
+aviso_cambio_pct = 0.1           # modo manual: avisa si el precio sugerido cambia más de este %
+aviso_cada_min = 10.0            # modo manual: mínimo de minutos entre avisos del mismo lado
 margen_minimo_pct = 0.8          # nunca publica por debajo de este neto por vuelta
 desfase_tick = 1                 # cuántos ticks mejoras al mejor rival
 intervalo_seg = 45.0
@@ -97,5 +99,6 @@ patron_referencia = ""
 [panel]
 host = "127.0.0.1"               # 127.0.0.1 = solo este equipo; 0.0.0.0 = toda la red (pon clave)
 puerto = 8000
+simulacion = true                # modo Simulación aparte, en /sim (nunca toca Binance ni tus datos reales)
 usuario = "admin"
 clave = ""                       # déjala vacía solo si el panel es local; obligatoria si lo expones

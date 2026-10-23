@@ -166,6 +166,15 @@ ruta = "BDV"               # con qué ruta bancaria calcula el margen
 
 ---
 
+### Anuncios a mano (sin API de comerciante)
+
+Si no puedes dar permiso de escritura a la API, usa `modo = "manual"` en `[anuncios]`.
+El bot calcula el precio ideal de tus anuncios, la tarjeta **"Crear tus anuncios a mano"**
+te da los valores exactos (precio, cantidad, límites, métodos de pago) con un botón de
+copiar, y cuando conviene cambiar el precio te avisa por Telegram/WhatsApp para que lo
+edites en **P2P → Mis anuncios**. Los avisos se controlan con `aviso_cambio_pct` y
+`aviso_cada_min`.
+
 ## Uso diario (paso a paso)
 
 1. **Abre el panel** y pulsa **Iniciar operación**: pon tu capital y si empiezas en
@@ -186,6 +195,19 @@ Para **detener todo** en cualquier momento (vas a comer, te vas a dormir, el mer
 puso feo): el botón **⏸ Pausar operatividad** baja tus anuncios y deja de mover precios.
 **▶ Reanudar operatividad** los vuelve a publicar. El estado es el mismo en todos tus
 dispositivos.
+
+## Modo Real y modo Simulación
+
+El panel tiene dos modos, con el selector **Real | Simulación** arriba a la derecha:
+
+- **Real** (`/`): tu base de datos, tu cuenta de Binance, el bot de anuncios y los avisos por
+  Telegram/WhatsApp.
+- **Simulación** (`/sim/`): datos de ejemplo en su propia base (`datos/demo.db`), con el
+  **simulador de ciclos** (capital, ciclos, rol, ruta). Con **Aplicar al panel** crea esos
+  ciclos como órdenes simuladas, y con **Reiniciar simulación** empieza de cero con el capital
+  que elijas. Nunca toca Binance ni te manda avisos.
+
+Se apaga con `simulacion = false` en `[panel]`.
 
 ## Desde tu teléfono y tu PC
 

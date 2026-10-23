@@ -398,3 +398,12 @@ textarea { resize: vertical; }
 .lista-decisiones li { display: grid; grid-template-columns: 96px 1fr; gap: 10px; padding: 8px 10px; border-radius: 8px; background: var(--lavado); font-size: 13px; }
 .lista-decisiones time { color: var(--tinta-2); font-size: 12px; }
 @media (max-width: 560px) { .lista-decisiones li { grid-template-columns: 1fr; gap: 2px; } }
+
+.segmentado.modo { display: inline-flex; }
+.segmentado.modo[hidden] { display: none; }
+.segmentado.modo a { padding: 6px 14px; text-decoration: none; color: var(--tinta-2); font-size: 13px; font-weight: 600; border-radius: 8px; }
+.segmentado.modo a[aria-current="page"] { background: var(--superficie); color: var(--tinta-1); box-shadow: 0 0 0 1px var(--borde); }
+
+.pasos { margin: 0 0 14px; padding-left: 20px; display: grid; gap: 4px; font-size: 13.5px; color: var(--tinta-2); }
+.pasos strong { color: var(--tinta-1); }
+.guia-manual .an-lado { gap: 4px; }

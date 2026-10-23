@@ -3,6 +3,8 @@
   "use strict";
 
   const G = window.Graficos;
+  // la simulación vive en /sim: mismas pantallas, otra base de datos y ningún canal real
+  const BASE = location.pathname.startsWith("/sim") ? "/sim" : "";
   const $ = (selector) => document.querySelector(selector);
   const NOMBRES_METODO = { BancoDeVenezuela: "Banco de Venezuela", PagoMovil: "Pago Móvil" };
   const ESTADOS = {
@@ -91,7 +93,7 @@
   const ejeNumero = (v, paso) => num(v, paso < 0.1 ? 2 : paso < 1 ? 1 : 0);
 
   async function api(ruta, opciones) {
-    const r = await fetch(ruta, { cache: "no-store", headers: { "Content-Type": "application/json" }, ...opciones });
+    const r = await fetch(BASE + ruta, { cache: "no-store", headers: { "Content-Type": "application/json" }, ...opciones });
     let cuerpo = null;
     try { cuerpo = await r.json(); } catch (e) { /* sin cuerpo JSON */ }
     if (!r.ok) {
@@ -159,6 +161,11 @@
     poner("par", `${c.activo}/${c.fiat}`);
     poner("metodos", c.metodos_pago.map((m) => NOMBRES_METODO[m] || m).join(" + "));
     $("#insignia-demo").hidden = !c.demo;
+    $("#selector-modo").hidden = !c.simulacion_disponible;
+    $("#modo-real").setAttribute("aria-current", BASE ? "false" : "page");
+    $("#modo-sim").setAttribute("aria-current", BASE ? "page" : "false");
+    $("#tarjeta-simulador").hidden = !c.demo;
+    document.title = c.demo ? "Simulación · Arbitraje P2P" : "Arbitraje P2P";
     if (em.ok === true) chip("#estado-mercado", em.aviso ? "aviso" : "ok", `Mercado ${hace(em.ok_ms)}`, em.aviso || "");
     else if (em.ok === false) chip("#estado-mercado", "error", "Mercado: error", em.error);
     else chip("#estado-mercado", "apagado", "Mercado: esperando…", "");
@@ -169,8 +176,8 @@
     else if (es.ok === false) chip("#estado-sync", "error", "Binance: error", es.error);
     else chip("#estado-sync", "apagado", "Binance: esperando…", "");
     $("#btn-sync").hidden = !c.binance_configurado;
-    $("#exp-ordenes").href = `/api/exportar/ordenes.csv?periodo=${periodo}`;
-    $("#exp-ciclos").href = `/api/exportar/ciclos.csv?periodo=${periodo}`;
+    $("#exp-ordenes").href = `${BASE}/api/exportar/ordenes.csv?periodo=${periodo}`;
+    $("#exp-ciclos").href = `${BASE}/api/exportar/ciclos.csv?periodo=${periodo}`;
     avisos([em.error, em.aviso, es.error].filter(Boolean));
   }
 
@@ -462,6 +469,7 @@
       chip.title = estado.error || "";
     }
 
+    renderGuiaManual(d);
     ladoAnuncio("an-compra", plan && plan.lados ? plan.lados.compra : null);
     ladoAnuncio("an-venta", plan && plan.lados ? plan.lados.venta : null);
     const margen = plan ? plan.margen_pct : null;
@@ -472,6 +480,38 @@
     poner("an-log", acciones.length ? acciones.map((x) => "• " + x.texto).join("\n") : (estado && estado.error) || "");
     $("#an-modo-real").hidden = !(cfg.automatico && cfg.modo === "real");
     $("#an-reposicionar").hidden = !cfg.binance_configurado && cfg.modo === "real";
+  }
+
+  function copiar(texto, boton) {
+    const listo = () => { const t = boton.textContent; boton.textContent = "Copiado"; setTimeout(() => { boton.textContent = t; }, 1200); };
+    if (navigator.clipboard) navigator.clipboard.writeText(texto).then(listo, () => {});
+  }
+
+  function renderGuiaManual(d) {
+    const g = d.anuncios && d.anuncios.guia_manual;
+    const manual = d.anuncios && d.anuncios.config.modo === "manual";
+    $("#guia-manual").hidden = !manual || !g;
+    if (!manual || !g) return;
+    poner("gm-par", `${g.activo} / ${g.fiat}`);
+    const cont = $("#gm-lados");
+    cont.textContent = "";
+    for (const lado of ["compra", "venta"]) {
+      const v = g.lados[lado];
+      const nombre = (id) => NOMBRES_METODO[id] || id;
+      const fila = (t, valor) => el("span", { class: "sub", text: `${t}: ${valor}` });
+      const caja = el("div", { class: "an-lado" },
+        el("span", { class: "etiqueta", text: `Anuncio de ${lado} (en Binance: ${v.tipo_binance})` }),
+        el("span", { class: "cifra", text: v.precio ? `${num(v.precio)} Bs` : "No publicar" }),
+        fila("Cantidad", `${num(v.usdt, 2)} USDT`),
+        fila("Límite por orden", v.min_bs || v.max_bs ? `${num(v.min_bs, 0)}–${num(v.max_bs, 0)} Bs` : "a tu gusto"),
+        fila("Métodos de pago", v.metodos.map(nombre).join(", ")),
+        fila("Tiempo de pago", `${v.tiempo_pago_min} min`),
+        el("span", { class: "sub", text: v.precio ? "" : v.motivo }));
+      if (v.precio) caja.append(el("button", { type: "button", class: "boton secundario", text: "Copiar precio",
+        onclick: (e) => copiar(String(v.precio), e.currentTarget) }));
+      cont.append(caja);
+    }
+    poner("gm-nota", "El precio se actualiza solo con el mercado; esta tarjeta siempre muestra el valor más reciente.");
   }
 
   // ---- preparar pago (BDVApp) -------------------------------------------------
@@ -1022,6 +1062,37 @@
 
   function iniciarSimulador() {
     const f = $("#f-sim");
+    const cuerpoSim = () => {
+      const opcional = (v) => (v === "" ? null : Number(v));
+      return { capital: Number(f.capital.value), moneda: f.moneda.value, ciclos: Number(f.ciclos.value),
+        ciclos_por_dia: Number(f.ciclos_por_dia.value || 1), rol: f.rol.value, ruta: f.ruta.value,
+        reinvertir: f.reinvertir.checked, precio_compra: opcional(f.precio_compra.value),
+        precio_venta: opcional(f.precio_venta.value) };
+    };
+    $("#sim-aplicar").addEventListener("click", async () => {
+      try {
+        const r = await api("/api/simulacion/ciclos", { method: "POST", body: JSON.stringify(cuerpoSim()) });
+        poner("sim-resultado", `Listo: creé ${r.ordenes_creadas} órdenes simuladas (${r.ciclos} ciclos). Mira los indicadores y las tablas.`);
+        cargar(false);
+      } catch (err) { poner("sim-resultado", `No pude aplicar los ciclos: ${err.message}`); }
+    });
+    $("#sim-reiniciar").addEventListener("click", async () => {
+      const ejemplo = confirm("¿Reiniciar la simulación? Se borra todo lo simulado.
+
+Aceptar = empezar de cero.
+Cancelar = no hacer nada.");
+      if (!ejemplo) return;
+      const conEjemplo = confirm("¿Quieres cargar 45 días de datos de ejemplo?
+
+Aceptar = con datos de ejemplo.
+Cancelar = totalmente vacía.");
+      try {
+        await api("/api/simulacion/reiniciar", { method: "POST", body: JSON.stringify({ capital: Number(f.capital.value) || 1000, con_ejemplo: conEjemplo }) });
+        $("#sim-salida").hidden = true;
+        poner("sim-resultado", `Simulación reiniciada con ${num(Number(f.capital.value) || 1000, 2)} USDT${conEjemplo ? " y datos de ejemplo" : ""}.`);
+        cargar(false);
+      } catch (err) { poner("sim-resultado", `No pude reiniciar: ${err.message}`); }
+    });
     const salida = $("#sim-salida");
     f.addEventListener("submit", async (e) => {
       e.preventDefault();

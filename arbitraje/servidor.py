@@ -8,6 +8,7 @@ import io
 import json
 import mimetypes
 import secrets
+import copy
 from contextlib import asynccontextmanager
 from dataclasses import asdict
 from datetime import datetime
@@ -100,6 +101,11 @@ class Simulacion(BaseModel):
     reinvertir: bool = True
     precio_compra: float | None = Field(default=None, gt=0)  # lo que pagas por USDT; vacío = mercado actual
     precio_venta: float | None = Field(default=None, gt=0)   # lo que recibes por USDT; vacío = mercado actual
+
+
+class ReiniciarSimulacion(BaseModel):
+    capital: float = Field(default=1000, gt=0)
+    con_ejemplo: bool = False   # True = vuelve a sembrar 45 días de datos de ejemplo
 
 
 class Contraparte(BaseModel):
@@ -205,6 +211,7 @@ def datos_panel(cfg: Config, db: BaseDatos, motor: Motor, periodo: str) -> dict:
         "hasta_ms": hasta,
         "config": {
             "demo": cfg.demo,
+            "simulacion_disponible": cfg.demo or cfg.panel.simulacion,
             "zona_horaria": cfg.general.zona_horaria,
             "activo": cfg.mercado.activo,
             "fiat": cfg.mercado.fiat,
@@ -240,6 +247,26 @@ def datos_panel(cfg: Config, db: BaseDatos, motor: Motor, periodo: str) -> dict:
     }
 
 
+def guia_manual(cfg: Config, plan) -> dict:
+    """Valores exactos para crear tus anuncios a mano en Binance P2P (cuando no hay API de escritura)."""
+    a = cfg.anuncios
+    monto = lambda propio: propio or cfg.general.capital_usdt  # noqa: E731
+    lados = {}
+    for lado, propio, metodos in (
+        ("compra", a.monto_compra_usdt, a.metodos_compra),
+        ("venta", a.monto_venta_usdt, cfg.mercado.metodos_pago),
+    ):
+        pl = getattr(plan, lado) if plan else None
+        lados[lado] = {
+            "tipo_binance": "Comprar" if lado == "compra" else "Vender",
+            "precio": pl.precio if pl and pl.publicar else None,
+            "motivo": pl.motivo if pl else "Aún no hay precios del mercado.",
+            "usdt": monto(propio), "min_bs": a.min_bs, "max_bs": a.max_bs,
+            "metodos": metodos, "tiempo_pago_min": a.pay_time_limit,
+        }
+    return {"activo": cfg.mercado.activo, "fiat": cfg.mercado.fiat, "lados": lados}
+
+
 def datos_anuncios(cfg: Config, motor: Motor) -> dict:
     """Estado del repositor de anuncios + el plan que daría con el precio actual."""
     a = cfg.anuncios
@@ -255,7 +282,9 @@ def datos_anuncios(cfg: Config, motor: Motor) -> dict:
                 for lado in ("COMPRA", "VENTA") if (pl := p.lado(lado))
             },
         }
+    guia = guia_manual(cfg, p) if motor.ultima_cotizacion is not None else guia_manual(cfg, None)
     return {
+        "guia_manual": guia,
         "config": {
             "automatico": a.automatico, "modo": a.modo, "lados": a.lados,
             "margen_minimo_pct": a.margen_minimo_pct, "desfase_tick": a.desfase_tick,
@@ -284,7 +313,23 @@ def _celda(valor):
     return "" if valor is None else valor
 
 
-def crear_app(cfg: Config, iniciar_tareas: bool = True) -> FastAPI:
+def config_simulacion(cfg: Config) -> Config:
+    """Copia de la configuración para el modo Simulación: datos de ejemplo y ningún canal real.
+
+    Sin claves de Binance ni tokens de avisos, la simulación no puede tocar tu cuenta ni mandarte mensajes.
+    """
+    sim = copy.deepcopy(cfg)
+    sim.demo = True
+    sim.general.base_datos = str(Path(cfg.general.base_datos).with_name("demo.db"))
+    sim.binance.api_key = sim.binance.api_secret = ""
+    sim.alertas.telegram_token = sim.alertas.telegram_chat_id = ""
+    sim.alertas.whatsapp_telefono = sim.alertas.whatsapp_apikey = ""
+    sim.banco.webhook_token = ""
+    sim.anuncios.automatico, sim.anuncios.modo = True, "simular"
+    return sim
+
+
+def crear_app(cfg: Config, iniciar_tareas: bool = True, con_simulacion: bool = True) -> FastAPI:
     db = BaseDatos(cfg.general.base_datos)
     if cfg.demo:
         from .demo import sembrar
@@ -294,14 +339,23 @@ def crear_app(cfg: Config, iniciar_tareas: bool = True) -> FastAPI:
     if cfg.demo and motor.simulador is not None:
         motor.ultima_cotizacion = motor.simulador.cotizar()  # primer plan visible al abrir el panel
 
+    sim_app = None
+    if con_simulacion and not cfg.demo and cfg.panel.simulacion:
+        sim_app = crear_app(config_simulacion(cfg), iniciar_tareas=False, con_simulacion=False)
+
     @asynccontextmanager
     async def ciclo_de_vida(app: FastAPI):
+        # una sub-aplicación montada no ejecuta su propio lifespan: lo arrancamos aquí
         if iniciar_tareas:
             motor.iniciar()
+            if sim_app:
+                sim_app.state.motor.iniciar()
         try:
             yield
         finally:
             await motor.detener()
+            if sim_app:
+                await sim_app.state.motor.detener()
 
     app = FastAPI(title="Arbitraje P2P", version=__version__, lifespan=ciclo_de_vida,
                   docs_url=None, redoc_url=None, openapi_url=None)
@@ -328,6 +382,8 @@ def crear_app(cfg: Config, iniciar_tareas: bool = True) -> FastAPI:
         return FileResponse(WEB / "index.html")
 
     app.mount("/static", StaticFiles(directory=WEB), name="static")
+    if sim_app:
+        app.mount("/sim", sim_app, name="simulacion")
 
     @app.get("/api/salud")
     def salud():
@@ -436,9 +492,7 @@ def crear_app(cfg: Config, iniciar_tareas: bool = True) -> FastAPI:
                             f"({(ganancia or 0):+.2f} USDT).")
         return {"ok": True, "sesion": sesion, "resumen": resumen}
 
-    @app.post("/api/simulador")
-    def simular(datos: Simulacion):
-        """Proyección de ciclos con tu capital. No guarda nada ni toca Binance."""
+    def correr_simulacion(datos: Simulacion) -> dict:
         ruta = (datos.ruta or cfg.anuncios.ruta).upper()
         sug_compra, sug_venta = mod_simulador.precios_sugeridos(db.ultima_cotizacion(), cfg.costos, datos.rol)
         p_compra, p_venta = datos.precio_compra or sug_compra, datos.precio_venta or sug_venta
@@ -455,6 +509,46 @@ def crear_app(cfg: Config, iniciar_tareas: bool = True) -> FastAPI:
         resultado.update(ruta=ruta, rol=datos.rol, reinvertir=datos.reinvertir,
                          precios_de_mercado=not (datos.precio_compra and datos.precio_venta))
         return resultado
+
+    @app.post("/api/simulador")
+    def simular(datos: Simulacion):
+        """Proyección de ciclos con tu capital. No guarda nada ni toca Binance."""
+        return correr_simulacion(datos)
+
+    @app.post("/api/simulacion/ciclos")
+    def aplicar_ciclos(datos: Simulacion):
+        """Solo en modo Simulación: convierte los ciclos en órdenes simuladas para verlas en el panel."""
+        if not cfg.demo:
+            raise HTTPException(403, "Esto solo existe en el modo Simulación.")
+        r = correr_simulacion(datos)
+        ordenes = mod_simulador.ordenes_de_ciclos(
+            r["filas"], datos.moneda, r["precio_compra"], r["precio_venta"], cfg.costos, r["ruta"], datos.rol,
+            ahora_ms(), datos.ciclos_por_dia,
+        )
+        db.guardar_ordenes(ordenes)
+        db.registrar_evento("decision", f"Simulación: apliqué {datos.ciclos} ciclos con {datos.capital:g} {datos.moneda} "
+                            f"({r['ganancia']:+.2f} {datos.moneda}).")
+        return {**{k: v for k, v in r.items() if k != "filas"}, "ordenes_creadas": len(ordenes)}
+
+    @app.post("/api/simulacion/reiniciar")
+    def reiniciar_simulacion(datos: ReiniciarSimulacion):
+        """Solo en modo Simulación: borra todo lo simulado y empieza de cero con el capital que elijas."""
+        if not cfg.demo:
+            raise HTTPException(403, "Esto solo existe en el modo Simulación.")
+        db.vaciar()
+        cfg.general.capital_usdt = datos.capital
+        if datos.con_ejemplo:
+            from .demo import sembrar
+
+            sembrar(db, cfg)
+        if motor.simulador is not None:
+            from .demo import MercadoSimulado
+
+            motor.simulador = MercadoSimulado(cfg, db)
+            motor.ultima_cotizacion = motor.simulador.cotizar()
+            db.guardar_cotizacion(motor.ultima_cotizacion.como_fila())
+        db.registrar_evento("info", f"Simulación reiniciada con capital {datos.capital:g} USDT.")
+        return {"ok": True, "capital": datos.capital, "con_ejemplo": datos.con_ejemplo}
 
     @app.get("/api/contrapartes")
     def listar_contrapartes():

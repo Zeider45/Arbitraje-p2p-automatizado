@@ -397,6 +397,12 @@ class BaseDatos:
             )
         return self.sesion(sesion_id)
 
+    def vaciar(self) -> None:
+        """Borra TODO el contenido (solo para la base de la simulación)."""
+        with self.conexion() as c:
+            for tabla in ("ordenes", "mercado", "movimientos_banco", "eventos", "contrapartes", "sesiones", "estado"):
+                c.execute(f"DELETE FROM {tabla}")
+
     # ---- eventos y estado ----------------------------------------------------------
 
     def registrar_evento(self, nivel: str, mensaje: str, ts_ms: int | None = None) -> None:

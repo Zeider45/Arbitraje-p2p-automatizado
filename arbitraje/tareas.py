@@ -216,6 +216,8 @@ class Motor:
         async with self._candado_anuncios:
             if cfg.en_real and self.agente:
                 acciones = await self._aplicar_plan(plan)
+            elif cfg.modo == "manual":
+                acciones = await self._plan_manual(plan)
             else:
                 acciones = self._plan_simulado(plan)
 
@@ -228,6 +230,36 @@ class Motor:
         if self.estado["anuncios"].get("error") is None:
             self.estado["anuncios"]["ok_ms"] = ahora_ms()
         return {"ok": True, "modo": cfg.modo, "plan": snapshot_lados, "acciones": acciones, "margen_pct": plan.margen_pct}
+
+    async def _plan_manual(self, plan: mod_anuncios.Plan) -> list[dict]:
+        """Sin API de escritura: calcula el precio ideal y te avisa cuándo mover TU anuncio a mano."""
+        cfg = self.cfg.anuncios
+        acciones, ahora = [], ahora_ms()
+        for lado in cfg.lados:
+            pl = plan.lado(lado)
+            if not pl:
+                continue
+            clave = f"anuncio_manual:{lado}"
+            previo = (self.db.leer_estado(clave) or "").split("|")
+            ultimo_precio = float(previo[0]) if previo[0] else None
+            ultimo_ts = int(previo[1]) if len(previo) > 1 else 0
+            if pl.publicar and pl.precio:
+                texto = f"Pon tu anuncio de {lado.lower()} a {formato_numero(pl.precio)} Bs" + (" (lideras)" if pl.competitivo else "")
+                cambia = ultimo_precio is None or abs(pl.precio - ultimo_precio) / ultimo_precio * 100 >= cfg.aviso_cambio_pct
+                accion, precio = "manual", pl.precio
+            else:
+                texto = f"Baja o pausa tu anuncio de {lado.lower()}: {pl.motivo}"
+                cambia, accion, precio = ultimo_precio is not None, "pausar", None
+            acciones.append({"lado": lado, "accion": accion, "precio": precio, "texto": texto})
+            if cambia and ahora - ultimo_ts >= cfg.aviso_cada_min * MINUTO_MS:
+                self.db.escribir_estado(clave, f"{precio if precio else ''}|{ahora}")
+                self.decidir(f"{texto}. Margen por vuelta: {formato_numero(plan.margen_pct)} %. Edítalo en Binance → P2P → Mis anuncios.")
+                await self.avisos.enviar(
+                    f"Ajusta tu anuncio de {lado.lower()}",
+                    f"{texto}\nMargen por vuelta: {formato_numero(plan.margen_pct)} %.\nEdítalo en Binance → P2P → Mis anuncios.",
+                )
+        self.estado["anuncios"]["error"] = None
+        return acciones
 
     def _plan_simulado(self, plan: mod_anuncios.Plan) -> list[dict]:
         acciones = []

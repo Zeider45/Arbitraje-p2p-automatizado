@@ -18,7 +18,11 @@
     <p class="sub"><span id="par">USDT/VES</span> · <span id="metodos">…</span></p>
   </div>
   <div class="estados">
-    <span class="insignia" id="insignia-demo" hidden>Demo · datos simulados</span>
+    <div class="segmentado modo" role="group" aria-label="Modo de operación" id="selector-modo">
+      <a href="/" id="modo-real">Real</a>
+      <a href="/sim/" id="modo-sim">Simulación</a>
+    </div>
+    <span class="insignia" id="insignia-demo" hidden>Simulación · datos de ejemplo, no toca Binance</span>
     <span class="chip" id="estado-mercado"><span class="icono" aria-hidden="true"></span><span class="texto">Mercado…</span></span>
     <span class="chip" id="estado-sync"><span class="icono" aria-hidden="true"></span><span class="texto">Binance…</span></span>
     <button class="boton-icono" id="tema" type="button" aria-label="Cambiar entre tema claro y oscuro" title="Tema claro / oscuro">◐</button>
@@ -210,6 +214,24 @@
     <p class="aviso-inline" id="an-modo-real" hidden>Modo real activo: el bot mueve precios de verdad en tu cuenta de Binance.</p>
   </section>
 
+  <section class="tarjeta guia-manual" id="guia-manual" aria-labelledby="t-guia" hidden>
+    <header class="cabecera">
+      <div>
+        <h2 id="t-guia">Crear tus anuncios a mano en Binance</h2>
+        <p class="sub">El bot no puede publicar por ti, así que calcula los valores exactos y te avisa por Telegram/WhatsApp cuando conviene cambiar el precio.</p>
+      </div>
+    </header>
+    <ol class="pasos">
+      <li>En Binance abre <strong>P2P → Publicar anuncio</strong> (Post Ad).</li>
+      <li>Elige <strong>Comprar</strong> para el anuncio de compra, o <strong>Vender</strong> para el de venta, con <strong id="gm-par">USDT / VES</strong>.</li>
+      <li>Pon <strong>precio fijo</strong> con el valor de abajo, la cantidad en USDT y los límites por orden en Bs.</li>
+      <li>Marca los métodos de pago indicados y el tiempo límite de pago.</li>
+      <li>Publícalo. Cuando el sistema te avise, entra a <strong>P2P → Mis anuncios → Editar</strong> y cambia solo el precio.</li>
+    </ol>
+    <div class="an-grid" id="gm-lados"></div>
+    <p class="sub" id="gm-nota"></p>
+  </section>
+
   <section class="tarjeta pago" aria-labelledby="t-pago">
     <header class="cabecera">
       <div>
@@ -243,7 +265,7 @@
     </form>
   </section>
 
-  <section class="tarjeta simulador" aria-labelledby="t-simulador">
+  <section class="tarjeta simulador" id="tarjeta-simulador" aria-labelledby="t-simulador" hidden>
     <header class="cabecera">
       <div>
         <h2 id="t-simulador">Simulador de ciclos</h2>
@@ -270,6 +292,8 @@
       <label class="casilla"><input type="checkbox" name="reinvertir" checked> Reinvertir la ganancia en cada ciclo (interés compuesto)</label>
       <div class="pie-formulario">
         <span class="sub">Deja los precios vacíos para usar los del mercado ahora.</span>
+        <button type="button" class="boton secundario" id="sim-reiniciar" title="Borra todo lo simulado y empieza con este capital">Reiniciar simulación</button>
+        <button type="button" class="boton secundario" id="sim-aplicar" title="Crea estas órdenes simuladas en el panel">Aplicar al panel</button>
         <button type="submit" class="boton">Simular</button>
       </div>
       <p class="resultado" id="sim-resultado" role="status"></p>

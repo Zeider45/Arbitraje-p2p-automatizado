@@ -68,7 +68,9 @@ class Costos:
 @dataclass
 class Anuncios:
     automatico: bool = False          # el repositor de precios actúa solo
-    modo: str = "simular"             # simular (no toca Binance) | real
+    modo: str = "simular"             # simular (no toca Binance) | manual (te avisa y tú editas) | real
+    aviso_cambio_pct: float = 0.1     # modo manual: avisa si el precio sugerido cambia más de este %
+    aviso_cada_min: float = 10.0      # modo manual: mínimo de minutos entre avisos del mismo lado
     margen_minimo_pct: float = 0.8    # neto mínimo como anunciante para seguir publicado
     desfase_tick: int = 1             # cuántos ticks mejoras al mejor rival
     intervalo_seg: float = 45.0
@@ -133,6 +135,7 @@ class Panel:
     puerto: int = 8000
     usuario: str = "admin"
     clave: str = ""
+    simulacion: bool = True       # ofrece el modo Simulación aparte en /sim (datos de ejemplo, sin tocar Binance)
 
 
 @dataclass
@@ -242,8 +245,8 @@ def validar(cfg: Config) -> None:
     if cfg.anuncios.ruta not in RUTAS:
         raise ValueError('anuncios.ruta debe ser "bdv" o "interbancario"')
     cfg.anuncios.modo = cfg.anuncios.modo.strip().lower()
-    if cfg.anuncios.modo not in ("simular", "real"):
-        raise ValueError('anuncios.modo debe ser "simular" o "real"')
+    if cfg.anuncios.modo not in ("simular", "manual", "real"):
+        raise ValueError('anuncios.modo debe ser "simular", "manual" o "real"')
     cfg.anuncios.lados = [l.strip().upper() for l in cfg.anuncios.lados if l.strip()]
     if any(l not in ("COMPRA", "VENTA") for l in cfg.anuncios.lados):
         raise ValueError('anuncios.lados solo admite "COMPRA" y "VENTA"')

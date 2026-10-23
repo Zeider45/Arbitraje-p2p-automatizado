@@ -187,3 +187,30 @@ def test_credenciales_validas():
     assert credenciales_validas(cab, "admin", "otra") is False
     assert credenciales_validas("Bearer xyz", "admin", "clave") is False
     assert credenciales_validas("", "admin", "clave") is False
+
+
+def test_modo_simulacion_aislado_del_real(tmp_path):
+    cfg = cargar(None)
+    cfg.general.base_datos = str(tmp_path / "real.db")
+    cfg.binance.api_key, cfg.binance.api_secret = "k", "s"
+    cfg.alertas.telegram_token, cfg.alertas.telegram_chat_id = "t", "1"
+    with TestClient(crear_app(cfg, iniciar_tareas=False)) as c:
+        real = c.get("/api/panel").json()
+        sim = c.get("/sim/api/panel").json()
+        assert real["config"]["demo"] is False and real["config"]["simulacion_disponible"] is True
+        assert sim["config"]["demo"] is True
+        # la simulación no hereda canales reales
+        assert sim["config"]["binance_configurado"] is False and sim["config"]["telegram_configurado"] is False
+        assert real["config"]["binance_configurado"] is True
+        # bases de datos separadas
+        assert real["ordenes"] == [] and len(sim["ordenes"]) > 0
+        assert c.get("/sim/").status_code == 200
+
+
+def test_simulacion_se_puede_apagar(tmp_path):
+    cfg = cargar(None)
+    cfg.general.base_datos = str(tmp_path / "real.db")
+    cfg.panel.simulacion = False
+    with TestClient(crear_app(cfg, iniciar_tareas=False)) as c:
+        assert c.get("/api/panel").json()["config"]["simulacion_disponible"] is False
+        assert c.get("/sim/api/panel").status_code == 404
